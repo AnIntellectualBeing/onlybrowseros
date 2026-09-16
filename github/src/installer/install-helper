@@ -1,0 +1,597 @@
+#!/usr/bin/env python3
+"""
+OnlyBrowserOS install helper: the part of the installer that runs as root.
+
+    sudo -n /usr/lib/onlybrowseros/install-helper install  < options.json
+
+Reads the installer's choices as JSON on stdin, erases the chosen disk and
+copies the running live system onto it. Progress goes to stdout as
+`##{"phase": ..., "percent": ...}` lines between plain log lines. On failure
+the last line starts with `error:`; on success it ends with "is installed".
+
+Only the live USB lets the obos group run this (sudoers.d/onlybrowseros-live),
+and the installed system does not keep that permission. The checks here stop
+mistakes, such as erasing the USB stick it is running from, rather than fend
+off someone who already has sudo.
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+TARGET = Path("/target")
+ESP_MOUNT = TARGET / "boot" / "efi"
+FLAG = Path("/run/onlybrowseros/installing")
+MIN_DISK = 8 * 1024 ** 3
+LIVE_SUDOERS = "etc/sudoers.d/onlybrowseros-live"
+CHROOT_ENV = {
+    "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+    "HOME": "/root",
+    "LC_ALL": "C",
+    "LANG": "C",
+    "DEBIAN_FRONTEND": "noninteractive",
+}
+
+# Not copied to the installed system: kernel filesystems, the live medium,
+# caches, and the live session's browser profile and logs.
+RSYNC_EXCLUDES = [
+    "/dev/*", "/proc/*", "/sys/*", "/run/*", "/tmp/*",
+    "/mnt/*", "/media/*", "/target", "/target/*",
+    "/cdrom/*", "/live/*", "/lost+found", "/swapfile",
+    "/boot/efi/*",
+    "/var/cache/apt/archives/*.deb",
+    "/var/tmp/*", "/var/log/journal/*",
+    "/root/.cache",
+    "/home/*/.cache", "/home/*/.mozilla", "/home/*/.local/state/*",
+    "/etc/fstab",
+    "/etc/machine-id",
+    "/var/lib/dbus/machine-id",
+]
+
+USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+HOSTNAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+TZ_RE = re.compile(r"^[A-Za-z0-9+_/-]{1,64}$")
+KB_RE = re.compile(r"^[a-z]{2,6}$")
+KERNEL_ARGS_RE = re.compile(r"^[A-Za-z0-9=.,:_ /-]{0,200}$")
+
+RESERVED_USERS = {
+    "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news",
+    "uucp", "proxy", "www-data", "backup", "list", "irc", "nobody", "systemd-network",
+    "systemd-timesync", "messagebus", "polkitd", "avahi", "sddm", "obos", "sudo",
+    "audio", "video", "netdev", "plugdev", "bluetooth", "input", "render",
+}
+
+
+# ---------------------------------------------------------------- output
+
+def emit(**kwargs):
+    sys.stdout.write("##" + json.dumps(kwargs) + "\n")
+    sys.stdout.flush()
+
+
+def say(text):
+    sys.stdout.write(str(text).rstrip() + "\n")
+    sys.stdout.flush()
+
+
+class Fail(Exception):
+    pass
+
+
+def sh(args, check=True, quiet=False, timeout=None, chroot=False, input_text=None):
+    if chroot:
+        args = ["chroot", str(TARGET)] + args
+        env = CHROOT_ENV
+    else:
+        env = dict(os.environ, LC_ALL="C", LANG="C")
+    if not quiet:
+        say("  $ " + " ".join(args))
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                           env=env, input=input_text)
+    except FileNotFoundError:
+        raise Fail(f"{args[0]}: command not found")
+    except subprocess.TimeoutExpired:
+        raise Fail(f"{args[0]}: timed out")
+
+    out = (p.stdout or "").strip()
+    err = (p.stderr or "").strip()
+    if not quiet:
+        for line in (out.splitlines()[-12:] + err.splitlines()[-12:]):
+            say("    " + line)
+    if check and p.returncode != 0:
+        detail = err.splitlines()[-1] if err else (out.splitlines()[-1] if out else "no detail")
+        raise Fail(f"{' '.join(args[:3])} failed (status {p.returncode}): {detail}")
+    return p.returncode, out, err
+
+
+# ------------------------------------------------------------ validation
+
+def disk_mounts(disk):
+    code, out, _ = sh(["lsblk", "-nrpo", "NAME,MOUNTPOINTS", disk], quiet=True, check=False)
+    mounts = []
+    for line in out.splitlines():
+        parts = line.split(" ", 1)
+        if len(parts) == 2 and parts[1].strip():
+            # lsblk -r escapes spaces in mount points as \x20
+            for mount in parts[1].split("\\x0a"):
+                mount = mount.replace("\\x20", " ").strip()
+                if mount:
+                    mounts.append((parts[0], mount))
+    return mounts
+
+
+def validate(opts):
+    disk = str(opts.get("disk", ""))
+    if not re.fullmatch(r"/dev/[a-zA-Z0-9/_-]{1,40}", disk):
+        raise Fail(f"Refusing to touch {disk!r}: not a device path")
+    if not Path(disk).is_block_device():
+        raise Fail(f"{disk} is not a disk")
+
+    _, kind, _ = sh(["lsblk", "-ndo", "TYPE", disk], quiet=True)
+    if kind.strip() != "disk":
+        raise Fail(f"{disk} is a {kind.strip() or 'unknown device'}, not a whole disk")
+    _, size, _ = sh(["lsblk", "-bndo", "SIZE", disk], quiet=True)
+    if int(size.strip() or 0) < MIN_DISK:
+        raise Fail(f"{disk} is smaller than 8 GB")
+
+    for dev, mount in disk_mounts(disk):
+        if mount.startswith("/run/live") or mount == "/":
+            raise Fail(f"{disk} is the USB stick OnlyBrowserOS is running from")
+        if mount == "[SWAP]":
+            sh(["swapoff", dev], check=False)
+        elif mount.startswith("/media/"):
+            # A USB disk that was mounted automatically when plugged in.
+            sh(["umount", mount], check=False)
+        else:
+            raise Fail(f"{disk} is in use (mounted at {mount})")
+    if disk_mounts(disk) and any(m != "[SWAP]" for _, m in disk_mounts(disk)):
+        raise Fail(f"{disk} is still in use; close anything using it and try again")
+
+    fullname = str(opts.get("fullname", "")).strip()
+    if not 1 <= len(fullname) <= 64 or any(c in fullname for c in ":,=\n\r"):
+        raise Fail("Your name must be 1 to 64 characters, without : , or =")
+
+    username = str(opts.get("username", "")).strip()
+    if not USERNAME_RE.fullmatch(username):
+        raise Fail(f"Invalid account name {username!r}")
+    if username in RESERVED_USERS:
+        raise Fail(f"{username!r} is reserved by the system; choose another name")
+
+    hostname = str(opts.get("hostname", "onlybrowseros")).strip() or "onlybrowseros"
+    if not HOSTNAME_RE.fullmatch(hostname):
+        raise Fail(f"Invalid computer name {hostname!r}")
+
+    password = str(opts.get("password", ""))
+    if len(password) < 4:
+        raise Fail("The password must be at least 4 characters")
+    if "\n" in password or "\r" in password:
+        raise Fail("The password cannot contain a line break")
+
+    tz = str(opts.get("timezone", "UTC")).strip() or "UTC"
+    if not TZ_RE.fullmatch(tz) or ".." in tz or not Path("/usr/share/zoneinfo", tz).is_file():
+        say(f"  ! unknown time zone {tz!r}, using UTC")
+        tz = "UTC"
+
+    kb = str(opts.get("keyboard", "us")).strip() or "us"
+    if not KB_RE.fullmatch(kb):
+        raise Fail(f"Invalid keyboard layout {kb!r}")
+
+    tabs = str(opts.get("tab_limit", "auto")).strip().lower()
+    if tabs != "auto" and not (re.fullmatch(r"[0-9]{1,2}", tabs) and 1 <= int(tabs) <= 20):
+        raise Fail("The tab limit must be 'auto' or a number from 1 to 20")
+
+    kernel_args = str(opts.get("kernel_args", "")).strip()
+    if not KERNEL_ARGS_RE.fullmatch(kernel_args):
+        raise Fail("Invalid extra kernel arguments")
+
+    return {
+        "disk": disk,
+        "fullname": fullname,
+        "username": username,
+        "hostname": hostname,
+        "password": password,
+        "timezone": tz,
+        "keyboard": kb,
+        "autologin": bool(opts.get("autologin", True)),
+        "tab_limit": tabs,
+        "kernel_args": kernel_args,
+    }
+
+
+def firmware_mode():
+    return "uefi" if Path("/sys/firmware/efi").is_dir() else "bios"
+
+
+def part_name(disk, index):
+    # /dev/sda -> /dev/sda1 ; /dev/nvme0n1 -> /dev/nvme0n1p1 ; /dev/mmcblk0 -> /dev/mmcblk0p1
+    return f"{disk}p{index}" if disk[-1].isdigit() else f"{disk}{index}"
+
+
+def wait_for(path, timeout=20):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if Path(path).exists():
+            return True
+        time.sleep(0.3)
+    return False
+
+
+# ------------------------------------------------------------------ steps
+
+def partition(disk, mode):
+    emit(phase="Preparing the disk", percent=6)
+
+    _, parts, _ = sh(["lsblk", "-nrpo", "NAME", disk], quiet=True, check=False)
+    for dev in parts.split()[1:]:
+        sh(["wipefs", "-a", dev], check=False, quiet=True)
+    sh(["wipefs", "-a", disk], check=False)
+    sh(["sgdisk", "--zap-all", disk], check=False)
+
+    if mode == "uefi":
+        sh(["parted", "-s", disk, "mklabel", "gpt"])
+        sh(["parted", "-s", disk, "mkpart", "EFI", "fat32", "1MiB", "513MiB"])
+        sh(["parted", "-s", disk, "set", "1", "esp", "on"])
+        sh(["parted", "-s", disk, "mkpart", "OnlyBrowserOS", "ext4", "513MiB", "100%"])
+        esp, root = part_name(disk, 1), part_name(disk, 2)
+    else:
+        # An MS-DOS label is what a fifteen-year-old BIOS expects; GPT on such
+        # machines is a coin flip.
+        sh(["parted", "-s", disk, "mklabel", "msdos"])
+        sh(["parted", "-s", disk, "mkpart", "primary", "ext4", "1MiB", "100%"])
+        sh(["parted", "-s", disk, "set", "1", "boot", "on"])
+        esp, root = None, part_name(disk, 1)
+
+    sh(["partprobe", disk], check=False)
+    sh(["udevadm", "settle"], check=False)
+    if not wait_for(root) or (esp and not wait_for(esp)):
+        raise Fail("The new partitions did not appear; restart the computer and try again")
+    return esp, root
+
+
+def format_and_mount(esp, root):
+    emit(phase="Preparing the disk", percent=12)
+    sh(["mkfs.ext4", "-F", "-q", "-L", "onlybrowseros", root])
+    if esp:
+        sh(["mkfs.vfat", "-F", "32", "-n", "OBOS-EFI", esp])
+
+    TARGET.mkdir(parents=True, exist_ok=True)
+    sh(["mount", "-o", "noatime", root, str(TARGET)])
+    if esp:
+        ESP_MOUNT.mkdir(parents=True, exist_ok=True)
+        sh(["mount", esp, str(ESP_MOUNT)])
+
+
+def copy_system():
+    emit(phase="Copying OnlyBrowserOS to the disk", percent=15)
+
+    args = ["rsync", "-aHAX", "--numeric-ids", "--info=progress2", "--no-inc-recursive"]
+    for pattern in RSYNC_EXCLUDES:
+        args += ["--exclude", pattern]
+    args += ["/", str(TARGET) + "/"]
+    say("  $ rsync -aHAX … / /target/")
+
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+    last = -1
+    buf = b""
+    while True:
+        chunk = proc.stdout.read(512)
+        if not chunk:
+            break
+        buf += chunk
+        # progress2 rewrites a single line with \r, so split on both.
+        pieces = re.split(rb"[\r\n]", buf)
+        buf = pieces.pop()
+        for piece in pieces:
+            text = piece.decode("utf-8", "replace").strip()
+            m = re.search(r"(\d{1,3})%", text)
+            if m:
+                scaled = 15 + int(min(100, int(m.group(1))) * 0.6)  # 15..75 of the whole job
+                if scaled != last:
+                    last = scaled
+                    emit(percent=scaled)
+            elif text and ("rsync:" in text or "error" in text.lower()):
+                say("    " + text)
+
+    code = proc.wait()
+    # 23/24: some files vanished or could not be read, normal on a running system.
+    if code not in (0, 23, 24):
+        raise Fail(f"Copying the system failed (rsync status {code})")
+    for rel in ("dev", "proc", "sys", "run", "tmp", "mnt", "media", "boot/efi"):
+        (TARGET / rel).mkdir(parents=True, exist_ok=True)
+    os.chmod(TARGET / "tmp", 0o1777)
+    say("  system copied")
+
+
+def make_swap():
+    emit(phase="Setting up memory", percent=76)
+    try:
+        mem_kb = next(int(line.split()[1]) for line in Path("/proc/meminfo").read_text().splitlines()
+                      if line.startswith("MemTotal:"))
+        free = shutil.disk_usage(TARGET).free
+    except (OSError, ValueError, StopIteration):
+        say("  ! could not size swap, skipping")
+        return None
+
+    # zram (compressed RAM) is the first swap; this file on disk only catches
+    # what zram cannot hold.
+    size = min(max(mem_kb * 1024, 1024 ** 3), 2 * 1024 ** 3)
+    if free < size + 4 * 1024 ** 3:
+        say("  ! not enough free space for a swap file, skipping")
+        return None
+
+    swap = TARGET / "swapfile"
+    code, _, _ = sh(["fallocate", "-l", str(size), str(swap)], check=False)
+    if code != 0:
+        sh(["dd", "if=/dev/zero", f"of={swap}", "bs=1M", f"count={size // 1024 ** 2}", "status=none"])
+    os.chmod(swap, 0o600)
+    sh(["mkswap", str(swap)], quiet=True)
+    say(f"  swap file: {size // 1024 ** 2} MB")
+    return "/swapfile"
+
+
+def uuid_of(dev):
+    _, out, _ = sh(["blkid", "-s", "UUID", "-o", "value", dev], quiet=True)
+    if not out.strip():
+        raise Fail(f"Could not read the ID of {dev}")
+    return out.strip()
+
+
+def write_fstab(esp, root, swap):
+    lines = [
+        "# /etc/fstab: written by the OnlyBrowserOS installer",
+        f"UUID={uuid_of(root)}  /          ext4  noatime,errors=remount-ro  0  1",
+    ]
+    if esp:
+        lines.append(f"UUID={uuid_of(esp)}  /boot/efi  vfat  umask=0077  0  1")
+    if swap:
+        lines.append(f"{swap}  none  swap  sw,pri=-2  0  0")
+    (TARGET / "etc" / "fstab").write_text("\n".join(lines) + "\n")
+    # No hibernation: stop the initramfs looking for a resume device.
+    conf = TARGET / "etc" / "initramfs-tools" / "conf.d"
+    conf.mkdir(parents=True, exist_ok=True)
+    (conf / "resume").write_text("RESUME=none\n")
+    say("  fstab written")
+
+
+def live_user():
+    for line in (TARGET / "etc" / "group").read_text().splitlines():
+        parts = line.split(":")
+        if parts[0] == "obos" and len(parts) >= 4 and parts[3]:
+            return parts[3].split(",")[0]
+    raise Fail("The live account is missing from the copied system")
+
+
+def configure_system(opts):
+    """Everything that edits files in the target. Runs before /proc is bound
+    into the target: usermod refuses to rename an account it sees running, and
+    the live session's processes run as exactly that account."""
+    emit(phase="Setting up your account", percent=80)
+
+    hostname, user = opts["hostname"], opts["username"]
+    (TARGET / "etc" / "hostname").write_text(hostname + "\n")
+    (TARGET / "etc" / "hosts").write_text(
+        "127.0.0.1\tlocalhost\n"
+        f"127.0.1.1\t{hostname}\n"
+        "::1\t\tlocalhost ip6-localhost ip6-loopback\n"
+        "ff02::1\t\tip6-allnodes\n"
+        "ff02::2\t\tip6-allrouters\n"
+    )
+
+    localtime = TARGET / "etc" / "localtime"
+    if localtime.exists() or localtime.is_symlink():
+        localtime.unlink()
+    localtime.symlink_to(f"/usr/share/zoneinfo/{opts['timezone']}")
+    (TARGET / "etc" / "timezone").write_text(opts["timezone"] + "\n")
+
+    (TARGET / "etc" / "default" / "keyboard").write_text(
+        'XKBMODEL="pc105"\n'
+        f'XKBLAYOUT="{opts["keyboard"]}"\n'
+        'XKBVARIANT=""\n'
+        'XKBOPTIONS=""\n'
+        'BACKSPACE="guess"\n'
+    )
+    say(f"  {hostname}, time zone {opts['timezone']}, keyboard {opts['keyboard']}")
+
+    old = live_user()
+    if user != old:
+        sh(["usermod", "-l", user, "-d", f"/home/{user}", "-m", old], chroot=True)
+        sh(["groupmod", "-n", user, old], chroot=True, check=False)
+    sh(["usermod", "-c", opts["fullname"], user], chroot=True, check=False)
+    say(f"  account: {user}")
+
+    code, _, err = sh(["chpasswd"], chroot=True, quiet=True, check=False,
+                      input_text=f"{user}:{opts['password']}\n")
+    if code != 0:
+        raise Fail(f"Could not set the password: {err}")
+    sh(["passwd", "-l", "root"], chroot=True, check=False, quiet=True)
+
+    dropin = TARGET / "etc" / "systemd" / "system" / "getty@tty1.service.d"
+    dropin.mkdir(parents=True, exist_ok=True)
+    autologin = dropin / "autologin.conf"
+    if opts["autologin"]:
+        autologin.write_text(
+            "[Service]\n"
+            "ExecStart=\n"
+            f"ExecStart=-/sbin/agetty --noclear --skip-login --nonewline --noissue --autologin {user} %I $TERM\n"
+        )
+        say("  starts straight into the browser")
+    else:
+        if autologin.exists():
+            autologin.unlink()
+        say("  asks for the password at start-up")
+
+    (TARGET / "etc" / "machine-id").write_text("")
+    dbus_id = TARGET / "var" / "lib" / "dbus" / "machine-id"
+    if dbus_id.exists() or dbus_id.is_symlink():
+        dbus_id.unlink()
+
+    obos = TARGET / "etc" / "onlybrowseros"
+    obos.mkdir(parents=True, exist_ok=True)
+    (obos / "tabs.conf").write_text(
+        "# How many tabs the browser may have open at once.\n"
+        "# auto = decided from the amount of RAM at every boot; or a number from 1 to 20.\n"
+        f"TAB_LIMIT={opts['tab_limit']}\n"
+    )
+    (obos / "installed").write_text(time.strftime("%Y-%m-%d") + "\n")
+
+    # The installed computer must not let a program running as the user erase disks.
+    live_sudoers = TARGET / LIVE_SUDOERS
+    if live_sudoers.exists():
+        live_sudoers.unlink()
+
+
+def bind_mounts(mode, undo=False):
+    binds = [("/dev", "dev"), ("/dev/pts", "dev/pts"), ("/proc", "proc"), ("/sys", "sys"), ("/run", "run")]
+    if mode == "uefi" and Path("/sys/firmware/efi/efivars").is_dir():
+        binds.append(("/sys/firmware/efi/efivars", "sys/firmware/efi/efivars"))
+    if undo:
+        for _, rel in reversed(binds):
+            sh(["umount", "-l", str(TARGET / rel)], check=False, quiet=True)
+        return
+    for src, rel in binds:
+        dest = TARGET / rel
+        dest.mkdir(parents=True, exist_ok=True)
+        sh(["mount", "--bind", src, str(dest)], quiet=True)
+
+
+def add_boot_entry(disk):
+    """A firmware boot menu entry named OnlyBrowserOS that starts shim, in
+    place of any left from an earlier install."""
+    if not shutil.which("efibootmgr"):
+        say("  ! efibootmgr is missing; the computer starts from the removable path")
+        return
+    _, out, _ = sh(["efibootmgr"], check=False, quiet=True)
+    for m in re.finditer(r"^Boot([0-9A-Fa-f]{4})\*?\s+OnlyBrowserOS\b", out, re.M):
+        sh(["efibootmgr", "-q", "-b", m.group(1), "-B"], check=False, quiet=True)
+    sh(["efibootmgr", "-q", "-c", "-d", disk, "-p", "1", "-L", "OnlyBrowserOS",
+        "-l", "\\EFI\\debian\\shimx64.efi"], check=False)
+
+
+def finish_system(opts, mode):
+    emit(phase="Making the disk start OnlyBrowserOS", percent=84)
+
+    # The live-boot scripts only make sense on the USB stick.
+    sh(["dpkg", "--purge", "live-boot", "live-boot-initramfs-tools"], chroot=True, check=False)
+
+    grub_default = TARGET / "etc" / "default" / "grub"
+    grub_default.parent.mkdir(parents=True, exist_ok=True)
+    grub_default.write_text(
+        "GRUB_DEFAULT=0\n"
+        "GRUB_TIMEOUT_STYLE=hidden\n"
+        "GRUB_TIMEOUT=2\n"
+        'GRUB_DISTRIBUTOR="OnlyBrowserOS"\n'
+        f'GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3 vt.global_cursor_default=0 {opts["kernel_args"]}"\n'
+        'GRUB_CMDLINE_LINUX=""\n'
+        "GRUB_DISABLE_OS_PROBER=true\n"
+    )
+
+    emit(phase="Making the disk start OnlyBrowserOS", percent=86)
+    kernels = sorted((TARGET / "boot").glob("vmlinuz-*"))
+    if not kernels:
+        raise Fail("The copied system has no kernel in /boot")
+    for kernel in kernels:
+        version = kernel.name[len("vmlinuz-"):]
+        flag = "-u" if (TARGET / "boot" / f"initrd.img-{version}").exists() else "-c"
+        sh(["update-initramfs", flag, "-k", version], chroot=True)
+
+    emit(phase="Making the disk start OnlyBrowserOS", percent=92)
+    if mode == "uefi":
+        # Works with Secure Boot on: Microsoft-signed shim, then Debian's signed
+        # GRUB and kernel. Debian's signed GRUB reads its menu from \EFI\debian,
+        # so it is installed there; the boot menu entry still says OnlyBrowserOS.
+        sh(["grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",
+            "--bootloader-id=debian", "--uefi-secure-boot", "--no-nvram", "--recheck"], chroot=True)
+        # Cheap firmware often forgets boot entries; the removable path
+        # \EFI\BOOT\BOOTX64.EFI is always tried.
+        sh(["grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",
+            "--bootloader-id=debian", "--uefi-secure-boot", "--removable", "--no-nvram"],
+           chroot=True, check=False)
+        add_boot_entry(opts["disk"])
+    else:
+        sh(["grub-install", "--target=i386-pc", "--recheck", opts["disk"]], chroot=True)
+
+    emit(phase="Making the disk start OnlyBrowserOS", percent=95)
+    sh(["update-grub"], chroot=True)
+
+
+def cleanup(mode):
+    bind_mounts(mode, undo=True)
+    sh(["umount", "-l", str(ESP_MOUNT)], check=False, quiet=True)
+    sh(["umount", "-l", str(TARGET)], check=False, quiet=True)
+    sh(["sync"], check=False, quiet=True)
+
+
+# ------------------------------------------------------------------- main
+
+def cmd_install():
+    raw = sys.stdin.read()
+    try:
+        opts = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise Fail(f"Bad options: {exc}")
+
+    emit(phase="Checking the disk", percent=2)
+    opts = validate(opts)
+    mode = firmware_mode()
+    say(f"  installing to {opts['disk']} ({mode.upper()} start-up)")
+
+    tools = ["parted", "sgdisk", "wipefs", "mkfs.ext4", "rsync", "blkid", "lsblk", "partprobe"]
+    if mode == "uefi":
+        tools.append("mkfs.vfat")
+    missing = [t for t in tools if not shutil.which(t)]
+    if missing:
+        raise Fail(f"Tools missing from this USB stick: {', '.join(missing)}")
+
+    FLAG.parent.mkdir(parents=True, exist_ok=True)
+    FLAG.touch()
+    try:
+        if TARGET.is_mount():
+            cleanup(mode)
+        esp, root = partition(opts["disk"], mode)
+        format_and_mount(esp, root)
+        try:
+            copy_system()
+            swap = make_swap()
+            write_fstab(esp, root, swap)
+            configure_system(opts)
+            bind_mounts(mode)
+            finish_system(opts, mode)
+        finally:
+            emit(phase="Finishing", percent=98)
+            cleanup(mode)
+    finally:
+        try:
+            FLAG.unlink()
+        except OSError:
+            pass
+
+    emit(phase="Done", percent=100)
+    say(f"OnlyBrowserOS is installed on {opts['disk']}.")
+
+
+def main():
+    if os.geteuid() != 0:
+        say("error: install-helper must run as root")
+        return 1
+    if len(sys.argv) != 2 or sys.argv[1] != "install":
+        say("usage: install-helper install < options.json")
+        return 2
+    try:
+        cmd_install()
+    except Fail as exc:
+        say(f"error: {exc}")
+        return 1
+    except Exception as exc:  # noqa: BLE001 - reported to the installer window
+        say(f"error: unexpected failure: {exc}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

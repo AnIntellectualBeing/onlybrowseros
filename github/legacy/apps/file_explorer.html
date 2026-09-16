@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Files</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --chrome: rgba(30, 41, 59, 0.75);
+      --card: rgba(30, 41, 59, 0.55);
+      --border: rgba(255, 255, 255, 0.1);
+      --accent: #f59e0b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); overflow: hidden; }
+    #wrap { display: flex; flex-direction: column; height: 100%; }
+
+    #bar {
+      flex: 0 0 auto; height: 48px; background: var(--chrome);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px; padding: 0 14px;
+    }
+    .btn {
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: 6px 12px;
+      font-size: 0.82rem; cursor: pointer; white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+    .btn.accent { background: rgba(245,158,11,0.18); border-color: rgba(245,158,11,0.5); }
+    .btn.danger { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.45); color: #fca5a5; }
+
+    #path-bar {
+      flex: 1; display: flex; align-items: center; gap: 4px;
+      background: rgba(2,6,23,0.6); border: 1px solid var(--border);
+      border-radius: 9px; padding: 6px 12px; font-size: 0.85rem;
+      overflow-x: auto; white-space: nowrap; scrollbar-width: none;
+    }
+    #path-bar::-webkit-scrollbar { display: none; }
+    .crumb { color: var(--muted); cursor: pointer; }
+    .crumb:hover { color: var(--accent); text-decoration: underline; }
+    .crumb.last { color: var(--text); font-weight: 600; cursor: default; }
+    .crumb.last:hover { text-decoration: none; }
+    .sep { color: #475569; }
+
+    #side-and-list { flex: 1 1 auto; display: flex; min-height: 0; }
+
+    #sidebar {
+      flex: 0 0 190px; border-right: 1px solid var(--border);
+      padding: 14px 10px; overflow-y: auto; background: rgba(15,23,42,0.5);
+    }
+    .side-label {
+      font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.6px;
+      color: var(--muted); margin: 6px 8px 8px;
+    }
+    .side-item {
+      display: flex; align-items: center; gap: 9px; padding: 8px 10px;
+      border-radius: 8px; cursor: pointer; font-size: 0.85rem; color: var(--muted);
+    }
+    .side-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+    .side-item.active { background: rgba(245,158,11,0.15); color: var(--text); }
+
+    #list-host { flex: 1 1 auto; overflow-y: auto; padding: 8px 0 40px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+    thead th {
+      position: sticky; top: 0; background: #131c31; z-index: 2;
+      text-align: left; padding: 9px 14px; font-size: 0.7rem;
+      text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);
+      border-bottom: 1px solid var(--border); font-weight: 600;
+    }
+    tbody tr { cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    tbody tr:hover { background: rgba(255,255,255,0.05); }
+    tbody tr.selected { background: rgba(245,158,11,0.16); }
+    tbody td { padding: 8px 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    td.name { display: flex; align-items: center; gap: 10px; max-width: 0; width: 60%; }
+    td.size, td.mode { color: var(--muted); font-size: 0.8rem; }
+    td.mode { font-family: monospace; }
+    .row-icon { flex: 0 0 auto; }
+    .row-name { overflow: hidden; text-overflow: ellipsis; }
+    tr.dim td { opacity: 0.5; }
+
+    #status {
+      flex: 0 0 auto; height: 30px; border-top: 1px solid var(--border);
+      background: var(--chrome); display: flex; align-items: center;
+      padding: 0 14px; font-size: 0.76rem; color: var(--muted); gap: 14px;
+    }
+
+    #empty { padding: 40px; text-align: center; color: var(--muted); font-size: 0.9rem; }
+
+    /* modal */
+    #backdrop {
+      position: fixed; inset: 0; background: rgba(2,6,23,0.72);
+      display: none; align-items: center; justify-content: center; z-index: 100;
+    }
+    #backdrop.show { display: flex; }
+    .modal {
+      width: 380px; max-width: 90vw; background: #0f172a;
+      border: 1px solid var(--border); border-radius: 14px; padding: 22px;
+      display: flex; flex-direction: column; gap: 14px;
+      box-shadow: 0 24px 50px rgba(0,0,0,0.6);
+    }
+    .modal h3 { font-size: 1rem; }
+    .modal p { font-size: 0.85rem; color: var(--muted); line-height: 1.5; word-break: break-all; }
+    .modal input {
+      padding: 10px 12px; border-radius: 9px; background: rgba(2,6,23,0.8);
+      border: 1px solid var(--border); color: var(--text); font-size: 0.9rem; outline: none;
+    }
+    .modal input:focus { border-color: var(--accent); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+  </style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="bar">
+    <button class="btn" id="btn-up" title="Parent folder">↑</button>
+    <button class="btn" id="btn-reload" title="Refresh">↻</button>
+    <div id="path-bar"></div>
+    <button class="btn" id="btn-newdir">New Folder</button>
+    <button class="btn" id="btn-rename" disabled>Rename</button>
+    <button class="btn danger" id="btn-delete" disabled>Delete</button>
+  </div>
+
+  <div id="side-and-list">
+    <div id="sidebar">
+      <div class="side-label">Places</div>
+      <div id="places"></div>
+    </div>
+
+    <div id="list-host">
+      <table>
+        <thead>
+          <tr><th>Name</th><th style="width:120px">Size</th><th style="width:110px">Modified</th><th style="width:100px">Mode</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" style="display:none"></div>
+    </div>
+  </div>
+
+  <div id="status">
+    <span id="count">—</span>
+    <span id="freespace"></span>
+    <span id="msg"></span>
+  </div>
+</div>
+
+<div id="backdrop">
+  <div class="modal">
+    <h3 id="m-title"></h3>
+    <p id="m-body"></p>
+    <input id="m-input" spellcheck="false">
+    <div class="modal-actions">
+      <button class="btn" id="m-cancel">Cancel</button>
+      <button class="btn accent" id="m-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<script src="/webos-api.js"></script>
+<script>
+'use strict';
+
+const PLACES = [
+  { icon: '🏠', name: 'Home',      path: '~' },
+  { icon: '🖥️', name: 'Desktop',   path: '~/Desktop' },
+  { icon: '📄', name: 'Documents', path: '~/Documents' },
+  { icon: '⬇️', name: 'Downloads', path: '~/Downloads' },
+  { icon: '🖼️', name: 'Pictures',  path: '~/Pictures' },
+  { icon: '💽', name: 'Filesystem', path: '/' },
+  { icon: '📀', name: 'Media',     path: '/media' },
+  { icon: '⚙️', name: 'Config',    path: '/etc' },
+];
+
+const TEXT_EXT = new Set(['txt','md','log','conf','cfg','ini','json','yaml','yml','xml','html','htm',
+  'css','js','ts','py','sh','bash','c','h','cpp','rs','go','java','rb','php','sql','csv','toml',
+  'service','desktop','rules','list','env','gitignore','lock','patch','diff']);
+
+const ICONS = {
+  dir: '📁', link: '🔗', txt: '📄', img: '🖼️', audio: '🎵', video: '🎬',
+  archive: '🗜️', code: '📜', exec: '⚙️', other: '📦',
+};
+
+let cwd = '~';
+let entries = [];
+let selected = null;
+
+const $ = (id) => document.getElementById(id);
+
+function extOf(name) {
+  const i = name.lastIndexOf('.');
+  return i > 0 ? name.slice(i + 1).toLowerCase() : '';
+}
+
+function iconFor(e) {
+  if (e.is_dir) return ICONS.dir;
+  if (e.is_link) return ICONS.link;
+  const x = extOf(e.name);
+  if (['png','jpg','jpeg','gif','bmp','svg','webp','ico'].includes(x)) return ICONS.img;
+  if (['mp3','wav','ogg','flac','m4a','opus'].includes(x)) return ICONS.audio;
+  if (['mp4','mkv','webm','avi','mov'].includes(x)) return ICONS.video;
+  if (['zip','tar','gz','xz','bz2','7z','rar','deb','iso','squashfs'].includes(x)) return ICONS.archive;
+  if (TEXT_EXT.has(x)) return x && ['py','js','sh','c','cpp','rs','go','rb','php'].includes(x) ? ICONS.code : ICONS.txt;
+  if (e.executable) return ICONS.exec;
+  return ICONS.other;
+}
+
+function isTextFile(e) {
+  if (e.is_dir) return false;
+  if (TEXT_EXT.has(extOf(e.name))) return true;
+  return !e.name.includes('.') && e.size < 512 * 1024; // README, Makefile, ...
+}
+
+function fmtDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString([], sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/* ------------------------------------------------------------- modal */
+
+let modalResolve = null;
+
+function ask({ title, body, value, ok }) {
+  return new Promise((resolve) => {
+    modalResolve = resolve;
+    $('m-title').textContent = title;
+    $('m-body').textContent = body || '';
+    const input = $('m-input');
+    input.style.display = value === undefined ? 'none' : 'block';
+    input.value = value || '';
+    $('m-ok').textContent = ok || 'OK';
+    $('backdrop').classList.add('show');
+    if (value !== undefined) setTimeout(() => { input.focus(); input.select(); }, 40);
+  });
+}
+
+function closeModal(v) {
+  $('backdrop').classList.remove('show');
+  const r = modalResolve;
+  modalResolve = null;
+  if (r) r(v);
+}
+
+$('m-ok').addEventListener('click', () =>
+  closeModal($('m-input').style.display === 'none' ? true : $('m-input').value.trim())
+);
+$('m-cancel').addEventListener('click', () => closeModal(null));
+$('m-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('m-ok').click();
+  if (e.key === 'Escape') closeModal(null);
+});
+
+function flash(text, isError) {
+  const el = $('msg');
+  el.textContent = text;
+  el.style.color = isError ? '#fca5a5' : '#86efac';
+  setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 4000);
+}
+
+/* -------------------------------------------------------------- load */
+
+async function load(path) {
+  let data;
+  try {
+    data = await WebOS.listFiles(path);
+  } catch (err) {
+    flash(err.offline ? 'System bridge offline' : err.message, true);
+    return;
+  }
+
+  if (data.error) flash(data.error, true);
+
+  cwd = data.current;
+  entries = data.items || [];
+  selected = null;
+
+  renderCrumbs(data.current);
+  renderRows();
+  renderPlaces();
+
+  $('count').textContent =
+    entries.length + ' item' + (entries.length === 1 ? '' : 's');
+  $('freespace').textContent = data.free != null
+    ? WebOS.bytes(data.free) + ' free' : '';
+  $('btn-up').disabled = data.current === '/';
+}
+
+function renderCrumbs(path) {
+  const bar = $('path-bar');
+  bar.textContent = '';
+  const parts = path.split('/').filter(Boolean);
+
+  const root = document.createElement('span');
+  root.className = 'crumb' + (parts.length === 0 ? ' last' : '');
+  root.textContent = '/';
+  root.addEventListener('click', () => load('/'));
+  bar.appendChild(root);
+
+  let acc = '';
+  parts.forEach((p, i) => {
+    acc += '/' + p;
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.className = 'sep';
+      sep.textContent = '/';
+      bar.appendChild(sep);
+    }
+    const target = acc;
+    const c = document.createElement('span');
+    c.className = 'crumb' + (i === parts.length - 1 ? ' last' : '');
+    c.textContent = p;
+    if (i !== parts.length - 1) c.addEventListener('click', () => load(target));
+    bar.appendChild(c);
+  });
+}
+
+function renderPlaces() {
+  const host = $('places');
+  host.textContent = '';
+  PLACES.forEach((p) => {
+    const el = document.createElement('div');
+    el.className = 'side-item';
+    const icon = document.createElement('span');
+    icon.textContent = p.icon;
+    const label = document.createElement('span');
+    label.textContent = p.name;
+    el.appendChild(icon);
+    el.appendChild(label);
+    el.addEventListener('click', () => load(p.path));
+    host.appendChild(el);
+  });
+}
+
+function renderRows() {
+  const tbody = $('rows');
+  tbody.textContent = '';
+
+  if (!entries.length) {
+    $('empty').style.display = 'block';
+    $('empty').textContent = 'This folder is empty.';
+    return;
+  }
+  $('empty').style.display = 'none';
+
+  entries.forEach((e) => {
+    const tr = document.createElement('tr');
+    if (e.name.startsWith('.')) tr.className = 'dim';
+
+    const tdName = document.createElement('td');
+    tdName.className = 'name';
+    const ic = document.createElement('span');
+    ic.className = 'row-icon';
+    ic.textContent = iconFor(e);
+    const nm = document.createElement('span');
+    nm.className = 'row-name';
+    nm.textContent = e.name;
+    tdName.appendChild(ic);
+    tdName.appendChild(nm);
+
+    const tdSize = document.createElement('td');
+    tdSize.className = 'size';
+    tdSize.textContent = e.is_dir ? '—' : WebOS.bytes(e.size);
+
+    const tdMod = document.createElement('td');
+    tdMod.className = 'size';
+    tdMod.textContent = fmtDate(e.mtime);
+
+    const tdMode = document.createElement('td');
+    tdMode.className = 'mode';
+    tdMode.textContent = e.mode || '';
+
+    tr.append(tdName, tdSize, tdMod, tdMode);
+
+    tr.addEventListener('click', () => select(e, tr));
+    tr.addEventListener('dblclick', () => open(e));
+    tbody.appendChild(tr);
+  });
+}
+
+function select(e, tr) {
+  selected = e;
+  document.querySelectorAll('#rows tr').forEach((r) => r.classList.remove('selected'));
+  tr.classList.add('selected');
+  $('btn-rename').disabled = false;
+  $('btn-delete').disabled = false;
+}
+
+function open(e) {
+  if (e.is_dir) return load(e.path);
+  if (isTextFile(e)) {
+    WebOS.navigate('/apps/text_editor.html?path=' + encodeURIComponent(e.path));
+    return;
+  }
+  flash('No app is registered for this file type.', true);
+}
+
+/* ---------------------------------------------------------- commands */
+
+$('btn-up').addEventListener('click', () => {
+  const parent = cwd.replace(/\/+$/, '').split('/').slice(0, -1).join('/') || '/';
+  load(parent);
+});
+$('btn-reload').addEventListener('click', () => load(cwd));
+
+$('btn-newdir').addEventListener('click', async () => {
+  const name = await ask({ title: 'New Folder', body: 'Create inside ' + cwd, value: '', ok: 'Create' });
+  if (!name) return;
+  try {
+    await WebOS.mkdir(cwd.replace(/\/$/, '') + '/' + name);
+    flash('Created ' + name);
+    load(cwd);
+  } catch (err) { flash(err.message, true); }
+});
+
+$('btn-rename').addEventListener('click', async () => {
+  if (!selected) return;
+  const name = await ask({ title: 'Rename', body: selected.path, value: selected.name, ok: 'Rename' });
+  if (!name || name === selected.name) return;
+  try {
+    await WebOS.rename(selected.path, name);
+    flash('Renamed');
+    load(cwd);
+  } catch (err) { flash(err.message, true); }
+});
+
+$('btn-delete').addEventListener('click', async () => {
+  if (!selected) return;
+  const ok = await ask({
+    title: 'Delete ' + (selected.is_dir ? 'folder' : 'file'),
+    body: selected.path + (selected.is_dir ? '\n\nThe folder and everything in it will be removed. This cannot be undone.' : '\n\nThis cannot be undone.'),
+    ok: 'Delete',
+  });
+  if (!ok) return;
+  try {
+    await WebOS.remove(selected.path);
+    flash('Deleted');
+    load(cwd);
+  } catch (err) { flash(err.message, true); }
+});
+
+document.addEventListener('keydown', (e) => {
+  if ($('backdrop').classList.contains('show')) return;
+  if (e.key === 'F5') { e.preventDefault(); load(cwd); }
+  if (e.key === 'Delete' && selected) { e.preventDefault(); $('btn-delete').click(); }
+  if (e.key === 'F2' && selected) { e.preventDefault(); $('btn-rename').click(); }
+  if (e.key === 'Backspace' && cwd !== '/') { e.preventDefault(); $('btn-up').click(); }
+  if (e.key === 'Enter' && selected) { e.preventDefault(); open(selected); }
+});
+
+const startPath = new URLSearchParams(location.search).get('path') || '~';
+load(startPath);
+</script>
+</body>
+</html>

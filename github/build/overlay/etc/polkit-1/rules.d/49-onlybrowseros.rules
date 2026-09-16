@@ -1,0 +1,35 @@
+// OnlyBrowserOS: let the person at the computer manage Wi-Fi and power from
+// the taskbar without a password prompt (there is nowhere to type one).
+//
+// Only for a session that is both local and active, so a remote or background
+// process gains nothing.
+
+polkit.addRule(function (action, subject) {
+    if (!subject.local || !subject.active || !subject.isInGroup("obos")) {
+        return polkit.Result.NOT_HANDLED;
+    }
+
+    // Wi-Fi and wired networks: scan, connect, forget, turn the radio on/off.
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0) {
+        return polkit.Result.YES;
+    }
+
+    // Shut down, restart, sleep; also while a video holds an inhibitor.
+    var power = [
+        "org.freedesktop.login1.power-off",
+        "org.freedesktop.login1.power-off-multiple-sessions",
+        "org.freedesktop.login1.power-off-ignore-inhibit",
+        "org.freedesktop.login1.reboot",
+        "org.freedesktop.login1.reboot-multiple-sessions",
+        "org.freedesktop.login1.reboot-ignore-inhibit",
+        "org.freedesktop.login1.suspend",
+        "org.freedesktop.login1.suspend-multiple-sessions",
+        "org.freedesktop.login1.suspend-ignore-inhibit",
+        "org.freedesktop.login1.set-brightness"
+    ];
+    if (power.indexOf(action.id) !== -1) {
+        return polkit.Result.YES;
+    }
+
+    return polkit.Result.NOT_HANDLED;
+});

@@ -1,0 +1,13 @@
+// OnlyBrowserOS: install security updates (Firefox included) automatically.
+// There is no update screen, so this is how the browser stays safe online.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "false";
+
+// OnlyBrowserOS's own updates (the onlybrowseros package, published with
+// build/release.sh) install the same way.
+Unattended-Upgrade::Origins-Pattern:: "origin=OnlyBrowserOS,label=OnlyBrowserOS";

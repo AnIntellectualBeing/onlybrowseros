@@ -1,0 +1,6 @@
+# OnlyBrowserOS live USB only: let the installer partition a disk.
+#
+# The installer deletes this file from the system it installs, so an installed
+# computer cannot be wiped by a program running as the user.
+
+%obos ALL=(root) NOPASSWD: /usr/lib/onlybrowseros/install-helper install

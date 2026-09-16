@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# The OnlyBrowserOS graphical session, started by startx from the autologin
+# shell on tty1. Openbox manages the screen; its startup hook launches the
+# taskbar and the browser (/usr/lib/onlybrowseros/autostart).
+
+set -u
+
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/onlybrowseros"
+mkdir -p "$STATE" "$HOME/Downloads"
+
+# Keep logs from growing forever on a small disk.
+for log in "$STATE"/*.log; do
+  [[ -f "$log" ]] && (( $(stat -c %s "$log") > 1048576 )) && mv -f "$log" "$log.old"
+done
+
+exec >>"$STATE/session.log" 2>&1
+echo "=== session start $(date -Is) ==="
+
+# Firefox cannot tell X it is playing video, so blanking would cut into films.
+xset s off
+xset s noblank
+xset -dpms
+
+xsetroot -solid "#cfe5ff" -cursor_name left_ptr 2>/dev/null || true
+
+if [[ -r /etc/default/keyboard ]]; then
+  # shellcheck disable=SC1091
+  . /etc/default/keyboard
+  setxkbmap -layout "${XKBLAYOUT:-us}" -variant "${XKBVARIANT:-}" 2>/dev/null || true
+fi
+
+# Text size from the settings page: X's font resolution, which the taskbar
+# and Firefox both follow. Keep in step with TEXT_SIZES in settings-host.
+text_size="$(sed -n 's/^TEXT_SIZE=//p' "$HOME/.config/onlybrowseros/display.conf" 2>/dev/null)"
+case "$text_size" in
+  large)  dpi=120 ;;
+  larger) dpi=144 ;;
+  *)      dpi=96 ;;
+esac
+echo "Xft.dpi: $dpi" | xrdb -merge 2>/dev/null || true
+
+# Upload and save dialogs offer the two places that matter instead of the
+# file system.
+mkdir -p "$HOME/.config/gtk-3.0"
+printf 'file://%s/Downloads Downloads\nfile:///media USB sticks\n' "$HOME" > "$HOME/.config/gtk-3.0/bookmarks"
+
+# Programs started by systemd --user (PipeWire) and D-Bus activation need to
+# know which screen this session uses.
+dbus-update-activation-environment --systemd DISPLAY XAUTHORITY 2>/dev/null \
+  || systemctl --user import-environment DISPLAY XAUTHORITY 2>/dev/null || true
+
+exec openbox \
+  --config-file /etc/onlybrowseros/openbox/rc.xml \
+  --startup /usr/lib/onlybrowseros/autostart

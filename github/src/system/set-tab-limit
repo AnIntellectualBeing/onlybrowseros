@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""
+Change how many tabs the browser may keep open.
+
+    set-tab-limit auto     decide from the amount of RAM
+    set-tab-limit 3        a fixed number, 1 to 20
+
+The taskbar runs this through sudo (see /etc/sudoers.d/onlybrowseros), so it
+accepts nothing but those two forms. The browser applies it on its next start.
+"""
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+CONF = Path("/etc/onlybrowseros/tabs.conf")
+TUNE = "/usr/lib/onlybrowseros/tune"
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: set-tab-limit auto|1-20", file=sys.stderr)
+        return 2
+
+    value = sys.argv[1].strip().lower()
+    if value != "auto":
+        if not re.fullmatch(r"[0-9]{1,2}", value) or not 1 <= int(value) <= 20:
+            print("the tab limit must be 'auto' or a number from 1 to 20", file=sys.stderr)
+            return 2
+        value = str(int(value))
+
+    CONF.parent.mkdir(parents=True, exist_ok=True)
+    CONF.write_text(
+        "# How many tabs the browser may have open at once.\n"
+        "# auto = decided from the amount of RAM at every boot; or a number from 1 to 20.\n"
+        f"TAB_LIMIT={value}\n"
+    )
+    return subprocess.run([TUNE]).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# Run by openbox once it manages the screen: start the taskbar and the browser.
+# Both are restarted if they stop.
+#
+# On the live USB the welcome screen ("Try" or "Install") comes first and the
+# browser starts once it closes: installing on a 1 GB laptop goes better
+# without Firefox holding half the memory.
+
+set -u
+
+LIB=/usr/lib/onlybrowseros
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/onlybrowseros"
+mkdir -p "$STATE"
+
+# No screen reader is installed, so the taskbar and installer need not load
+# the accessibility bridge (and log a warning when it finds no bus).
+export NO_AT_BRIDGE=1
+
+(
+  while true; do
+    python3 "$LIB/panel/panel.py"
+    echo "$(date -Is) taskbar exited with status $?"
+    sleep 2
+  done
+) >>"$STATE/panel.log" 2>&1 &
+
+cmdline="$(cat /proc/cmdline 2>/dev/null)"
+if [[ " $cmdline " == *" boot=live "* && " $cmdline " != *" obos.autotest="* ]]; then
+  (
+    python3 "$LIB/installer/installer.py" --welcome >>"$STATE/installer.log" 2>&1
+    exec "$LIB/browser" >>"$STATE/browser.log" 2>&1
+  ) &
+else
+  "$LIB/browser" >>"$STATE/browser.log" 2>&1 &
+fi

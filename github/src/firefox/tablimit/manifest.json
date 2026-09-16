@@ -1,0 +1,53 @@
+{
+  "manifest_version": 2,
+  "name": "OnlyBrowserOS",
+  "version": "1.2.0",
+  "description": "Keeps the number of open tabs within what this computer can hold, keeps only downloads the browser can open, and opens the OnlyBrowserOS settings.",
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "tablimit@onlybrowseros",
+      "strict_min_version": "128.0"
+    }
+  },
+
+  "permissions": [
+    "tabs",
+    "notifications",
+    "storage",
+    "downloads",
+    "browsingData",
+    "nativeMessaging",
+    "<all_urls>"
+  ],
+
+  "incognito": "spanning",
+
+  "background": {
+    "scripts": ["background.js"]
+  },
+
+  "browser_action": {
+    "default_icon": "logo.svg",
+    "default_title": "OnlyBrowserOS settings",
+    "default_area": "navbar"
+  },
+
+  "options_ui": {
+    "page": "settings.html",
+    "open_in_tab": true
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["file:///usr/share/onlybrowseros/start/index.html"],
+      "js": ["start-page.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["file:///usr/share/onlybrowseros/start/downloads.html"],
+      "js": ["files-page.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

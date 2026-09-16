@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings</title>
+  <style>
+    :root {
+      --bg: #0f172a; --card: rgba(30,41,59,0.65);
+      --border: rgba(255,255,255,0.1); --accent: #6366f1;
+      --text: #f8fafc; --muted: #94a3b8; --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); }
+    body { overflow-y: auto; }
+
+    header {
+      padding: 26px 32px 18px; border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: rgba(15,23,42,0.96);
+      backdrop-filter: blur(12px); z-index: 5;
+    }
+    header h1 { font-size: 1.4rem; display: flex; align-items: center; gap: 10px; }
+    header p { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+
+    main { max-width: 780px; margin: 0 auto; padding: 24px 32px 60px;
+           display: flex; flex-direction: column; gap: 20px; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 22px 24px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .card h2 { font-size: 0.95rem; display: flex; align-items: center; gap: 9px; }
+    .card .hint { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+
+    .row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .row:last-child { border-bottom: none; }
+    .row .label { font-size: 0.88rem; }
+    .row .sub { font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+    .row .value { font-size: 0.85rem; color: var(--muted); font-family: monospace;
+                  text-align: right; word-break: break-all; }
+
+    input[type=text], input[type=url], select {
+      background: rgba(2,6,23,0.7); border: 1px solid var(--border);
+      color: var(--text); border-radius: 9px; padding: 8px 11px;
+      font-size: 0.85rem; outline: none; min-width: 200px;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    input[type=range] { accent-color: var(--accent); width: 220px; }
+
+    .btn {
+      background: rgba(255,255,255,0.07); border: 1px solid var(--border);
+      color: var(--text); border-radius: 9px; padding: 8px 15px;
+      font-size: 0.83rem; cursor: pointer; white-space: nowrap;
+    }
+    .btn:hover { background: rgba(255,255,255,0.14); }
+    .btn.accent { background: linear-gradient(135deg,#6366f1,#4f46e5);
+                  border-color: transparent; font-weight: 600; }
+    .btn.danger { background: rgba(239,68,68,0.15);
+                  border-color: rgba(239,68,68,0.45); color: #fca5a5; }
+
+    .tiles { display: flex; flex-direction: column; gap: 8px; }
+    .tile-row {
+      display: grid; grid-template-columns: 46px 1fr 1.4fr 34px;
+      gap: 8px; align-items: center;
+    }
+    .tile-row input { min-width: 0; width: 100%; }
+    .tile-row .del {
+      background: transparent; border: none; color: var(--danger);
+      cursor: pointer; font-size: 1rem;
+    }
+
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    #toast {
+      position: fixed; bottom: 22px; right: 22px; z-index: 50;
+      background: #0f172a; border: 1px solid var(--border);
+      border-left: 3px solid var(--accent); border-radius: 10px;
+      padding: 12px 16px; font-size: 0.85rem; display: none;
+      box-shadow: 0 18px 40px rgba(0,0,0,0.5);
+    }
+    #toast.show { display: block; }
+    #toast.err { border-left-color: var(--danger); }
+    #toast.ok { border-left-color: #22c55e; }
+
+    .live-note {
+      background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4);
+      border-radius: 12px; padding: 14px 18px; font-size: 0.85rem;
+      display: none; align-items: center; justify-content: space-between; gap: 14px;
+    }
+    .live-note.show { display: flex; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⚙️ Settings</h1>
+  <p>Configure WebOS. Changes are saved as you make them.</p>
+</header>
+
+<main>
+  <div class="live-note" id="live-note">
+    <span>This is a live session — settings reset on reboot unless you install WebOS to disk.</span>
+    <button class="btn accent" id="btn-install">Install</button>
+  </div>
+
+  <div class="card">
+    <h2>🔍 Browsing</h2>
+    <div class="row">
+      <div>
+        <div class="label">Search engine</div>
+        <div class="sub">Used by the address bar and dashboard search.</div>
+      </div>
+      <select id="search-engine">
+        <option value="https://duckduckgo.com/?q=">DuckDuckGo</option>
+        <option value="https://www.google.com/search?q=">Google</option>
+        <option value="https://www.bing.com/search?q=">Bing</option>
+        <option value="https://search.brave.com/search?q=">Brave</option>
+        <option value="https://lite.duckduckgo.com/lite/?q=">DuckDuckGo Lite (low bandwidth)</option>
+      </select>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">Home page</div>
+        <div class="sub">Where new tabs and the Home button go.</div>
+      </div>
+      <input type="text" id="homepage" placeholder="/newtab.html">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🔲 Dashboard tiles</h2>
+    <div class="hint">Shortcuts shown on the dashboard. Icon can be any emoji.</div>
+    <div class="tiles" id="tiles"></div>
+    <div class="actions">
+      <button class="btn" id="btn-add-tile">Add tile</button>
+      <button class="btn" id="btn-reset-tiles">Restore defaults</button>
+      <button class="btn accent" id="btn-save-tiles">Save tiles</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🔊 Sound &amp; display</h2>
+    <div class="row">
+      <div><div class="label">Volume</div><div class="sub" id="vol-sub">—</div></div>
+      <input type="range" id="volume" min="0" max="100" value="50">
+    </div>
+    <div class="row">
+      <div><div class="label">Brightness</div><div class="sub" id="bri-sub">—</div></div>
+      <input type="range" id="brightness" min="5" max="100" value="80">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>💻 System</h2>
+    <div class="row"><div class="label">Hostname</div><div class="value" id="i-host">—</div></div>
+    <div class="row"><div class="label">WebOS version</div><div class="value" id="i-ver">—</div></div>
+    <div class="row"><div class="label">Base system</div><div class="value" id="i-base">—</div></div>
+    <div class="row"><div class="label">Kernel</div><div class="value" id="i-kernel">—</div></div>
+    <div class="row"><div class="label">CPU</div><div class="value" id="i-cpu">—</div></div>
+    <div class="row"><div class="label">Memory</div><div class="value" id="i-ram">—</div></div>
+    <div class="row"><div class="label">Storage</div><div class="value" id="i-disk">—</div></div>
+    <div class="row"><div class="label">Session</div><div class="value" id="i-session">—</div></div>
+    <div class="row"><div class="label">Uptime</div><div class="value" id="i-uptime">—</div></div>
+  </div>
+
+  <div class="card">
+    <h2>⏻ Power</h2>
+    <div class="actions">
+      <button class="btn" id="btn-reboot">Restart</button>
+      <button class="btn danger" id="btn-shutdown">Shut down</button>
+      <button class="btn danger" id="btn-reset">Reset all settings</button>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script src="/webos-api.js"></script>
+<script>
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+
+const DEFAULT_TILES = [
+  { icon: '📊', name: 'System Monitor', url: '/apps/task_manager.html', color: '#10b981' },
+  { icon: '💻', name: 'Terminal',       url: '/apps/web_terminal.html', color: '#a855f7' },
+  { icon: '📁', name: 'Files',          url: '/apps/file_explorer.html', color: '#f59e0b' },
+  { icon: '⚙️', name: 'Settings',       url: '/apps/settings.html',     color: '#64748b' },
+  { icon: '🌐', name: 'Google',         url: 'https://www.google.com',  color: '#3b82f6' },
+  { icon: '▶️', name: 'YouTube',        url: 'https://www.youtube.com', color: '#ef4444' },
+  { icon: '🐙', name: 'GitHub',         url: 'https://github.com',      color: '#e2e8f0' },
+  { icon: '📚', name: 'Wikipedia',      url: 'https://wikipedia.org',   color: '#0ea5e9' },
+];
+
+let config = {};
+
+function toast(text, kind) {
+  const el = $('toast');
+  el.textContent = text;
+  el.className = 'show ' + (kind || '');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+async function patch(obj) {
+  try {
+    config = await WebOS.setConfig(obj);
+    toast('Saved', 'ok');
+  } catch (err) {
+    toast(err.offline ? 'System bridge offline' : err.message, 'err');
+  }
+}
+
+/* ------------------------------------------------------------- tiles */
+
+function renderTiles(tiles) {
+  const host = $('tiles');
+  host.textContent = '';
+  tiles.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'tile-row';
+
+    const icon = document.createElement('input');
+    icon.type = 'text';
+    icon.value = t.icon || '🌐';
+    icon.dataset.k = 'icon';
+
+    const name = document.createElement('input');
+    name.type = 'text';
+    name.value = t.name || '';
+    name.placeholder = 'Name';
+    name.dataset.k = 'name';
+
+    const url = document.createElement('input');
+    url.type = 'text';
+    url.value = t.url || '';
+    url.placeholder = 'https://…';
+    url.dataset.k = 'url';
+
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.textContent = '✕';
+    del.title = 'Remove';
+    del.addEventListener('click', () => {
+      row.remove();
+    });
+
+    row.append(icon, name, url, del);
+    host.appendChild(row);
+  });
+}
+
+function collectTiles() {
+  return [...document.querySelectorAll('.tile-row')].map((row) => {
+    const get = (k) => row.querySelector(`input[data-k="${k}"]`).value.trim();
+    return { icon: get('icon') || '🌐', name: get('name'), url: get('url'), color: '#6366f1' };
+  }).filter((t) => t.name && t.url);
+}
+
+$('btn-add-tile').addEventListener('click', () => {
+  const current = collectTiles();
+  current.push({ icon: '🌐', name: '', url: '', color: '#6366f1' });
+  renderTiles(current);
+});
+$('btn-reset-tiles').addEventListener('click', () => renderTiles(DEFAULT_TILES));
+$('btn-save-tiles').addEventListener('click', () => patch({ tiles: collectTiles() }));
+
+/* ------------------------------------------------------- preferences */
+
+$('search-engine').addEventListener('change', (e) => patch({ searchEngine: e.target.value }));
+$('homepage').addEventListener('change', (e) => patch({ homepage: e.target.value.trim() || '/newtab.html' }));
+
+let volTimer = null;
+$('volume').addEventListener('input', (e) => {
+  $('vol-sub').textContent = e.target.value + '%';
+  clearTimeout(volTimer);
+  volTimer = setTimeout(() => WebOS.setVolume(parseInt(e.target.value, 10)).catch(() => {}), 60);
+});
+
+let briTimer = null;
+$('brightness').addEventListener('input', (e) => {
+  $('bri-sub').textContent = e.target.value + '%';
+  clearTimeout(briTimer);
+  briTimer = setTimeout(() => WebOS.setBrightness(parseInt(e.target.value, 10)).catch(() => {}), 60);
+});
+
+/* ------------------------------------------------------------- power */
+
+$('btn-reboot').addEventListener('click', () => {
+  if (confirm('Restart WebOS now?')) WebOS.reboot().catch((e) => toast(e.message, 'err'));
+});
+$('btn-shutdown').addEventListener('click', () => {
+  if (confirm('Shut down WebOS now?')) WebOS.poweroff().catch((e) => toast(e.message, 'err'));
+});
+$('btn-reset').addEventListener('click', async () => {
+  if (!confirm('Reset every WebOS setting to its default?')) return;
+  await patch({ __reset: true });
+  load();
+});
+$('btn-install').addEventListener('click', () => WebOS.navigate('/apps/installer.html'));
+
+/* -------------------------------------------------------------- load */
+
+async function load() {
+  try {
+    config = await WebOS.getConfig();
+  } catch (err) {
+    toast('Could not read settings', 'err');
+    config = {};
+  }
+
+  $('search-engine').value = config.searchEngine || 'https://duckduckgo.com/?q=';
+  $('homepage').value = config.homepage || '/newtab.html';
+  renderTiles(Array.isArray(config.tiles) && config.tiles.length ? config.tiles : DEFAULT_TILES);
+
+  try {
+    const v = await WebOS.getVolume();
+    $('volume').value = v.level;
+    $('vol-sub').textContent = v.muted ? 'Muted' : v.level + '%';
+  } catch (err) { $('vol-sub').textContent = 'unavailable'; }
+
+  try {
+    const b = await WebOS.getBrightness();
+    $('brightness').disabled = !b.available;
+    $('brightness').value = b.level;
+    $('bri-sub').textContent = b.available ? b.level + '%' : 'no backlight control';
+  } catch (err) { $('bri-sub').textContent = 'unavailable'; }
+
+  try {
+    const s = await WebOS.status();
+    $('i-host').textContent = s.hostname || '—';
+    $('i-ver').textContent = s.version || '—';
+    $('i-base').textContent = s.base || '—';
+    $('i-kernel').textContent = s.kernel || '—';
+    $('i-cpu').textContent = s.cpu ? s.cpu.model + ' × ' + s.cpu.cores : '—';
+    $('i-ram').textContent = s.ram ? WebOS.bytes(s.ram.total_mb * 1024 * 1024) : '—';
+    $('i-disk').textContent = s.disk ? s.disk.used_gb + ' / ' + s.disk.total_gb + ' GB' : '—';
+    $('i-session').textContent = s.live ? 'Live media' : 'Installed';
+    $('i-uptime').textContent = s.uptime || '—';
+    $('live-note').classList.toggle('show', !!s.live);
+  } catch (err) { /* info card stays blank */ }
+}
+
+load();
+</script>
+</body>
+</html>

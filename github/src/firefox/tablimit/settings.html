@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings</title>
+<link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<main>
+  <header>
+    <img src="logo.svg" alt="" width="40" height="40">
+    <span class="wordmark">OnlyBrowser<span>OS</span></span>
+  </header>
+
+  <h1>Settings</h1>
+  <p class="load-error" id="load-error" role="alert" hidden></p>
+
+  <section class="card" id="power-card" aria-labelledby="power-title" hidden>
+    <h2 id="power-title">How powerful is this computer?</h2>
+    <p class="lead">This decides how many tabs can stay open at once, so websites never run out of memory.</p>
+    <p class="hint" id="memory"></p>
+    <div class="choices" id="levels" role="radiogroup" aria-labelledby="power-title"></div>
+    <div class="row">
+      <p class="note" id="power-note" role="status"></p>
+      <button class="btn primary" id="power-save" type="button" disabled>Save</button>
+    </div>
+  </section>
+
+  <section class="card" id="text-card" aria-labelledby="text-title" hidden>
+    <h2 id="text-title">Text size</h2>
+    <p class="lead">Makes words and buttons bigger everywhere: websites, the browser and the bar at the bottom of the screen.</p>
+    <div class="choices sizes" id="sizes" role="radiogroup" aria-labelledby="text-title"></div>
+    <div class="row">
+      <p class="note" id="text-note" role="status"></p>
+      <button class="btn primary" id="text-save" type="button" disabled>Save</button>
+    </div>
+  </section>
+
+  <section class="card" id="zone-card" aria-labelledby="zone-title" hidden>
+    <h2 id="zone-title">Time zone</h2>
+    <p class="lead">Sets the clock at the bottom of the screen.</p>
+    <div class="fields two">
+      <label>Region<select id="region"></select></label>
+      <label>City<select id="city"></select></label>
+    </div>
+    <div class="row">
+      <p class="note" id="zone-note" role="status"></p>
+      <button class="btn primary" id="zone-save" type="button" disabled>Save</button>
+    </div>
+  </section>
+
+  <section class="card" id="keyboard-card" aria-labelledby="keyboard-title" hidden>
+    <h2 id="keyboard-title">Keyboard layout</h2>
+    <p class="lead">Choose the language printed on your keyboard's keys.</p>
+    <div class="fields two">
+      <label>Layout<select id="keyboard"></select></label>
+      <label>Try it here<input id="keyboard-test" placeholder="Type to test" autocomplete="off"></label>
+    </div>
+    <div class="row">
+      <p class="note" id="keyboard-note" role="status"></p>
+      <button class="btn primary" id="keyboard-save" type="button" disabled>Save</button>
+    </div>
+  </section>
+
+  <section class="card" id="password-card" aria-labelledby="password-title" hidden>
+    <h2 id="password-title">Password</h2>
+    <p class="lead">Your password protects changes to this computer.</p>
+    <div class="fields">
+      <label>Current password<input type="password" id="pw-current" autocomplete="current-password"></label>
+      <label>New password<input type="password" id="pw-new" autocomplete="new-password" placeholder="At least 4 characters"></label>
+      <label>Type the new password again<input type="password" id="pw-again" autocomplete="new-password"></label>
+    </div>
+    <div class="row">
+      <p class="note" id="password-note" role="status"></p>
+      <button class="btn primary" id="password-save" type="button" disabled>Change password</button>
+    </div>
+  </section>
+
+  <section class="card" id="browsing-card" aria-labelledby="browsing-title" hidden>
+    <h2 id="browsing-title">Browsing</h2>
+    <p class="lead">Your history and the passwords the browser remembers.</p>
+    <div class="action-row">
+      <div class="words">
+        <strong>Clear browsing history</strong>
+        <span>Removes the list of websites you visited and saved copies of pages. You stay signed in to websites, and your downloads stay.</span>
+      </div>
+      <button class="btn" id="clear-history" type="button">Clear</button>
+    </div>
+    <div class="action-row">
+      <div class="words">
+        <strong>Saved passwords</strong>
+        <span>See, change or delete the passwords the browser remembers.</span>
+      </div>
+      <button class="btn" id="open-passwords" type="button">Open</button>
+    </div>
+    <p class="note" id="browsing-note" role="status"></p>
+  </section>
+
+  <p class="foot">Wi-Fi, sound, Bluetooth, battery and power are in the bar at the bottom of the screen.</p>
+</main>
+<script src="settings.js"></script>
+</body>
+</html>

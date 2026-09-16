@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard</title>
+  <style>
+    :root {
+      --accent: #6366f1;
+      --bg-dark: #0f172a;
+      --glass: rgba(30, 41, 59, 0.7);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      background: radial-gradient(circle at top right, #1e1b4b, #0f172a);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .dashboard-container {
+      max-width: 900px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .clock-block { text-align: center; }
+
+    .time-display {
+      font-size: 4rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      background: linear-gradient(135deg, #fff, #94a3b8);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .date-display {
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin-top: -6px;
+    }
+
+    .search-box {
+      width: 100%;
+      max-width: 650px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+      backdrop-filter: blur(16px);
+      transition: all 0.3s ease;
+    }
+
+    .search-box:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 25px rgba(99, 102, 241, 0.4);
+    }
+
+    .search-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 1.1rem;
+    }
+
+    .tiles-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 18px;
+      width: 100%;
+    }
+
+    .tile {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 18px;
+      padding: 22px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      color: var(--text);
+      backdrop-filter: blur(12px);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+    }
+
+    .tile:hover {
+      transform: translateY(-5px);
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--accent);
+      box-shadow: 0 12px 25px rgba(99, 102, 241, 0.25);
+    }
+
+    .tile-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      background: rgba(99, 102, 241, 0.2);
+    }
+
+    .tile-title {
+      font-size: 0.92rem;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .system-card {
+      width: 100%;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 20px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 16px;
+      backdrop-filter: blur(16px);
+    }
+
+    .sys-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 90px;
+    }
+
+    .sys-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .sys-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .live-banner {
+      width: 100%;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 20px;
+      border-radius: 14px;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      font-size: 0.88rem;
+    }
+
+    .live-banner.show { display: flex; }
+
+    .banner-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #1f1300;
+      border: none;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dashboard-container">
+    <div class="clock-block">
+      <div class="time-display" id="time-text">--:--</div>
+      <div class="date-display" id="date-text">WebOS</div>
+    </div>
+
+    <form class="search-box" id="search-form">
+      <span>🔍</span>
+      <input type="text" class="search-input" id="search-query" placeholder="Search the web or enter a URL" autofocus autocomplete="off" />
+    </form>
+
+    <div class="live-banner" id="live-banner">
+      <span>You are running WebOS from live media. Nothing you change will survive a reboot.</span>
+      <button class="banner-btn" id="btn-install">Install to disk</button>
+    </div>
+
+    <div class="tiles-grid" id="tiles-grid"></div>
+
+    <div class="system-card">
+      <div class="sys-item">
+        <div class="sys-value" id="val-cpu">—</div>
+        <div class="sys-label">CPU</div>
+      </div>
+      <div class="sys-item">
+        <div class="sys-value" id="val-ram">—</div>
+        <div class="sys-label">Memory</div>
+      </div>
+      <div class="sys-item">
+        <div class="sys-value" id="val-disk">—</div>
+        <div class="sys-label">Storage</div>
+      </div>
+      <div class="sys-item">
+        <div class="sys-value" id="val-uptime">—</div>
+        <div class="sys-label">Uptime</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/webos-api.js"></script>
+  <script>
+    const DEFAULT_TILES = [
+      { icon: '📊', name: 'System Monitor', url: '/apps/task_manager.html', color: '#10b981' },
+      { icon: '💻', name: 'Terminal',       url: '/apps/web_terminal.html', color: '#a855f7' },
+      { icon: '📁', name: 'Files',          url: '/apps/file_explorer.html', color: '#f59e0b' },
+      { icon: '⚙️', name: 'Settings',       url: '/apps/settings.html',     color: '#64748b' },
+      { icon: '🌐', name: 'Google',         url: 'https://www.google.com',  color: '#3b82f6' },
+      { icon: '▶️', name: 'YouTube',        url: 'https://www.youtube.com', color: '#ef4444' },
+      { icon: '🐙', name: 'GitHub',         url: 'https://github.com',      color: '#e2e8f0' },
+      { icon: '📚', name: 'Wikipedia',      url: 'https://wikipedia.org',   color: '#0ea5e9' },
+    ];
+
+    let searchEngine = 'https://duckduckgo.com/?q=';
+
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('time-text').textContent =
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      document.getElementById('date-text').textContent =
+        now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    function hexToRgba(hex, alpha) {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+      if (!m) return 'rgba(99, 102, 241, ' + alpha + ')';
+      return `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${alpha})`;
+    }
+
+    function renderTiles(tiles) {
+      const grid = document.getElementById('tiles-grid');
+      grid.textContent = '';
+      tiles.forEach((t) => {
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+
+        const icon = document.createElement('div');
+        icon.className = 'tile-icon';
+        icon.textContent = t.icon || '🌐';
+        icon.style.background = hexToRgba(t.color, 0.2);
+        icon.style.color = t.color || '#6366f1';
+
+        const title = document.createElement('div');
+        title.className = 'tile-title';
+        title.textContent = t.name;
+
+        tile.appendChild(icon);
+        tile.appendChild(title);
+        tile.addEventListener('click', () => WebOS.navigate(t.url));
+        grid.appendChild(tile);
+      });
+    }
+
+    document.getElementById('search-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = document.getElementById('search-query').value.trim();
+      if (!q) return;
+      let target = q;
+      if (!/^https?:\/\//i.test(q) && !q.startsWith('/')) {
+        if (/^[^\s]+\.[^\s]{2,}$/.test(q)) target = 'https://' + q;
+        else target = searchEngine + encodeURIComponent(q);
+      }
+      WebOS.navigate(target);
+    });
+
+    document.getElementById('btn-install').addEventListener('click', () =>
+      WebOS.navigate('/apps/installer.html')
+    );
+
+    async function loadConfig() {
+      try {
+        const cfg = await WebOS.getConfig();
+        if (cfg.searchEngine) searchEngine = cfg.searchEngine;
+        renderTiles(Array.isArray(cfg.tiles) && cfg.tiles.length ? cfg.tiles : DEFAULT_TILES);
+      } catch (err) {
+        renderTiles(DEFAULT_TILES);
+      }
+    }
+
+    async function fetchMetrics() {
+      try {
+        const d = await WebOS.status();
+        if (d.cpu) document.getElementById('val-cpu').textContent = d.cpu.percent + '%';
+        if (d.ram) document.getElementById('val-ram').textContent = d.ram.percent + '%';
+        if (d.disk) document.getElementById('val-disk').textContent = d.disk.percent + '%';
+        if (d.uptime) document.getElementById('val-uptime').textContent = d.uptime;
+        document.getElementById('live-banner').classList.toggle('show', !!d.live);
+      } catch (err) {
+        document.getElementById('val-cpu').textContent = '—';
+      }
+    }
+
+    loadConfig();
+    fetchMetrics();
+    setInterval(fetchMetrics, 5000);
+  </script>
+</body>
+</html>

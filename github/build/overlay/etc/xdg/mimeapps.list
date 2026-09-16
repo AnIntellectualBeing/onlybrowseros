@@ -1,0 +1,20 @@
+# OnlyBrowserOS: files the browser can show open in the browser. There is no
+# other program to open them with (for example from the downloads panel).
+[Default Applications]
+application/pdf=firefox-esr.desktop
+image/jpeg=firefox-esr.desktop
+image/png=firefox-esr.desktop
+image/gif=firefox-esr.desktop
+image/webp=firefox-esr.desktop
+image/avif=firefox-esr.desktop
+image/bmp=firefox-esr.desktop
+image/svg+xml=firefox-esr.desktop
+video/mp4=firefox-esr.desktop
+video/webm=firefox-esr.desktop
+video/ogg=firefox-esr.desktop
+audio/mpeg=firefox-esr.desktop
+audio/ogg=firefox-esr.desktop
+audio/x-wav=firefox-esr.desktop
+audio/flac=firefox-esr.desktop
+audio/mp4=firefox-esr.desktop
+text/plain=firefox-esr.desktop

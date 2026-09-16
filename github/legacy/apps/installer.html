@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Install WebOS</title>
+  <style>
+    :root {
+      --bg: #0f172a; --card: rgba(30,41,59,0.65);
+      --border: rgba(255,255,255,0.1); --accent: #6366f1;
+      --text: #f8fafc; --muted: #94a3b8; --danger: #ef4444; --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); }
+    body { overflow-y: auto; }
+
+    header {
+      padding: 26px 32px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 16px;
+    }
+    header h1 { font-size: 1.35rem; }
+    header .sub { color: var(--muted); font-size: 0.84rem; margin-top: 3px; }
+
+    .steps { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .dot {
+      width: 26px; height: 26px; border-radius: 50%; display: flex;
+      align-items: center; justify-content: center; font-size: 0.75rem;
+      background: rgba(255,255,255,0.07); border: 1px solid var(--border); color: var(--muted);
+    }
+    .dot.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .dot.done { background: rgba(34,197,94,0.2); border-color: #22c55e; color: #86efac; }
+
+    main { max-width: 760px; margin: 0 auto; padding: 26px 32px 60px; }
+    .panel { display: none; flex-direction: column; gap: 18px; }
+    .panel.active { display: flex; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 22px 24px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .card h2 { font-size: 1rem; }
+    .hint { font-size: 0.83rem; color: var(--muted); line-height: 1.55; }
+
+    .disk {
+      display: flex; align-items: center; gap: 16px; padding: 14px 16px;
+      border-radius: 12px; background: rgba(255,255,255,0.04);
+      border: 1px solid transparent; cursor: pointer; transition: 0.18s;
+    }
+    .disk:hover { background: rgba(255,255,255,0.08); border-color: var(--border); }
+    .disk.sel { border-color: var(--accent); background: rgba(99,102,241,0.15); }
+    .disk.blocked { opacity: 0.45; cursor: not-allowed; }
+    .disk .icon { font-size: 1.6rem; }
+    .disk .info { flex: 1; min-width: 0; }
+    .disk .name { font-weight: 600; font-size: 0.92rem; }
+    .disk .meta { font-size: 0.78rem; color: var(--muted); margin-top: 3px;
+                  overflow: hidden; text-overflow: ellipsis; }
+    .disk .cap { font-size: 1rem; font-weight: 700; color: var(--accent); }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 0.82rem; color: var(--muted); }
+    .field input, .field select {
+      background: rgba(2,6,23,0.7); border: 1px solid var(--border);
+      color: var(--text); border-radius: 9px; padding: 9px 12px;
+      font-size: 0.88rem; outline: none;
+    }
+    .field input:focus, .field select:focus { border-color: var(--accent); }
+    .field .err { font-size: 0.76rem; color: #fca5a5; min-height: 14px; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+    .check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.85rem; }
+    .check input { margin-top: 3px; accent-color: var(--accent); }
+
+    .warn-box {
+      background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.45);
+      border-radius: 12px; padding: 16px 18px; font-size: 0.87rem; line-height: 1.6;
+    }
+    .warn-box strong { color: #fca5a5; }
+
+    .summary { display: grid; grid-template-columns: 150px 1fr; gap: 8px 16px; font-size: 0.86rem; }
+    .summary dt { color: var(--muted); }
+    .summary dd { font-family: monospace; word-break: break-all; }
+
+    .nav { display: flex; justify-content: space-between; gap: 12px; }
+    .btn {
+      background: rgba(255,255,255,0.07); border: 1px solid var(--border);
+      color: var(--text); border-radius: 10px; padding: 10px 20px;
+      font-size: 0.88rem; cursor: pointer;
+    }
+    .btn:hover:not(:disabled) { background: rgba(255,255,255,0.14); }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+    .btn.accent { background: linear-gradient(135deg,#6366f1,#4f46e5);
+                  border-color: transparent; font-weight: 600; }
+    .btn.danger { background: linear-gradient(135deg,#ef4444,#dc2626);
+                  border-color: transparent; font-weight: 700; }
+
+    .bar-bg { width: 100%; height: 10px; background: rgba(255,255,255,0.08);
+              border-radius: 5px; overflow: hidden; }
+    .bar-fill { height: 100%; width: 0%; border-radius: 5px;
+                background: linear-gradient(90deg,#6366f1,#a855f7);
+                transition: width 0.4s ease; }
+
+    #log {
+      background: #070b16; border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; height: 260px; overflow-y: auto;
+      font-family: "DejaVu Sans Mono","Liberation Mono",monospace;
+      font-size: 0.76rem; line-height: 1.55; white-space: pre-wrap;
+      color: #94a3b8;
+    }
+    #log .e { color: #fca5a5; }
+    #log .s { color: #86efac; }
+
+    .phase { font-size: 0.92rem; font-weight: 600; }
+    .pct { font-size: 0.82rem; color: var(--muted); }
+
+    #notice {
+      display: none; padding: 14px 18px; border-radius: 12px; font-size: 0.86rem;
+      background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4);
+    }
+    #notice.show { display: block; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>💾 Install WebOS</h1>
+    <div class="sub">Copy this system onto a disk so it boots on its own.</div>
+  </div>
+  <div class="steps">
+    <div class="dot on" id="dot1">1</div>
+    <div class="dot" id="dot2">2</div>
+    <div class="dot" id="dot3">3</div>
+    <div class="dot" id="dot4">4</div>
+  </div>
+</header>
+
+<main>
+  <div id="notice"></div>
+
+  <!-- Step 1: target disk -->
+  <section class="panel active" id="panel1">
+    <div class="card">
+      <h2>Choose a disk</h2>
+      <div class="hint">
+        Everything on the disk you pick will be erased. Removable media you booted
+        from cannot be selected.
+      </div>
+      <div id="disks"><div class="hint">Scanning disks…</div></div>
+      <button class="btn" id="btn-rescan" style="align-self:flex-start">Rescan</button>
+    </div>
+    <div class="nav">
+      <span></span>
+      <button class="btn accent" id="to2" disabled>Continue</button>
+    </div>
+  </section>
+
+  <!-- Step 2: options -->
+  <section class="panel" id="panel2">
+    <div class="card">
+      <h2>Set up your account</h2>
+      <div class="two">
+        <div class="field">
+          <label for="f-host">Computer name</label>
+          <input id="f-host" value="webos" spellcheck="false">
+          <div class="err" id="e-host"></div>
+        </div>
+        <div class="field">
+          <label for="f-user">Username</label>
+          <input id="f-user" value="webos" spellcheck="false" autocomplete="off">
+          <div class="err" id="e-user"></div>
+        </div>
+      </div>
+      <div class="two">
+        <div class="field">
+          <label for="f-pass">Password</label>
+          <input id="f-pass" type="password" autocomplete="new-password">
+          <div class="err" id="e-pass"></div>
+        </div>
+        <div class="field">
+          <label for="f-pass2">Confirm password</label>
+          <input id="f-pass2" type="password" autocomplete="new-password">
+          <div class="err" id="e-pass2"></div>
+        </div>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="f-autologin" checked>
+        <span>Log in automatically — WebOS boots straight to the browser.
+              Turn this off if other people can reach the machine.</span>
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>Region</h2>
+      <div class="two">
+        <div class="field">
+          <label for="f-tz">Time zone</label>
+          <select id="f-tz"></select>
+        </div>
+        <div class="field">
+          <label for="f-kb">Keyboard layout</label>
+          <select id="f-kb"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav">
+      <button class="btn" id="back1">Back</button>
+      <button class="btn accent" id="to3">Continue</button>
+    </div>
+  </section>
+
+  <!-- Step 3: confirm -->
+  <section class="panel" id="panel3">
+    <div class="warn-box">
+      <strong>This erases the whole disk.</strong> Every partition, file and
+      operating system on the target will be destroyed and cannot be recovered.
+      Check the device name below carefully — this is the last step before writing.
+    </div>
+    <div class="card">
+      <h2>Review</h2>
+      <dl class="summary" id="summary"></dl>
+    </div>
+    <div class="card">
+      <label class="check">
+        <input type="checkbox" id="f-confirm">
+        <span id="confirm-label">I understand this disk will be erased.</span>
+      </label>
+    </div>
+    <div class="nav">
+      <button class="btn" id="back2">Back</button>
+      <button class="btn danger" id="do-install" disabled>Erase disk and install</button>
+    </div>
+  </section>
+
+  <!-- Step 4: progress -->
+  <section class="panel" id="panel4">
+    <div class="card">
+      <div class="phase" id="phase">Preparing…</div>
+      <div class="bar-bg"><div class="bar-fill" id="bar"></div></div>
+      <div class="pct" id="pct">0%</div>
+      <div id="log"></div>
+    </div>
+    <div class="nav">
+      <span class="hint" id="finish-hint">Do not power off the machine.</span>
+      <div style="display:flex; gap:10px">
+        <button class="btn" id="btn-close" style="display:none">Keep using live session</button>
+        <button class="btn accent" id="btn-reboot" style="display:none">Restart now</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="/webos-api.js"></script>
+<script>
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+
+const TIMEZONES = ['UTC','Europe/London','Europe/Dublin','Europe/Lisbon','Europe/Madrid',
+  'Europe/Paris','Europe/Brussels','Europe/Amsterdam','Europe/Berlin','Europe/Zurich',
+  'Europe/Rome','Europe/Vienna','Europe/Prague','Europe/Warsaw','Europe/Stockholm',
+  'Europe/Oslo','Europe/Helsinki','Europe/Athens','Europe/Bucharest','Europe/Kyiv',
+  'Europe/Istanbul','Europe/Moscow','Africa/Casablanca','Africa/Lagos','Africa/Cairo',
+  'Africa/Nairobi','Africa/Johannesburg','Asia/Jerusalem','Asia/Dubai','Asia/Karachi',
+  'Asia/Kolkata','Asia/Dhaka','Asia/Bangkok','Asia/Jakarta','Asia/Singapore',
+  'Asia/Hong_Kong','Asia/Shanghai','Asia/Manila','Asia/Seoul','Asia/Tokyo',
+  'Australia/Perth','Australia/Adelaide','Australia/Brisbane','Australia/Sydney',
+  'Pacific/Auckland','America/Sao_Paulo','America/Argentina/Buenos_Aires','America/Santiago',
+  'America/Bogota','America/Lima','America/Mexico_City','America/Chicago','America/New_York',
+  'America/Toronto','America/Denver','America/Phoenix','America/Los_Angeles',
+  'America/Vancouver','America/Anchorage','Pacific/Honolulu'];
+
+const KEYBOARDS = [['us','English (US)'],['gb','English (UK)'],['de','German'],['fr','French'],
+  ['es','Spanish'],['it','Italian'],['pt','Portuguese'],['br','Portuguese (Brazil)'],
+  ['nl','Dutch'],['be','Belgian'],['ch','Swiss'],['se','Swedish'],['no','Norwegian'],
+  ['dk','Danish'],['fi','Finnish'],['pl','Polish'],['cz','Czech'],['hu','Hungarian'],
+  ['ro','Romanian'],['gr','Greek'],['ru','Russian'],['ua','Ukrainian'],['tr','Turkish'],
+  ['il','Hebrew'],['ara','Arabic'],['in','Indian'],['jp','Japanese'],['kr','Korean'],
+  ['cn','Chinese'],['latam','Latin American']];
+
+let disks = [];
+let chosen = null;
+let step = 1;
+let polling = null;
+
+/* ------------------------------------------------------------- steps */
+
+function goto(n) {
+  step = n;
+  [1, 2, 3, 4].forEach((i) => {
+    $('panel' + i).classList.toggle('active', i === n);
+    const dot = $('dot' + i);
+    dot.className = 'dot' + (i === n ? ' on' : i < n ? ' done' : '');
+    if (i < n) dot.textContent = '✓';
+    else dot.textContent = String(i);
+  });
+  window.scrollTo(0, 0);
+}
+
+function notice(text, kind) {
+  const el = $('notice');
+  el.textContent = text;
+  el.classList.toggle('show', !!text);
+}
+
+/* --------------------------------------------------------- step one */
+
+async function loadDisks() {
+  const host = $('disks');
+  host.textContent = '';
+  const loading = document.createElement('div');
+  loading.className = 'hint';
+  loading.textContent = 'Scanning disks…';
+  host.appendChild(loading);
+
+  let data;
+  try {
+    data = await WebOS.disks();
+  } catch (err) {
+    host.textContent = '';
+    const e = document.createElement('div');
+    e.className = 'hint';
+    e.textContent = err.offline ? 'System bridge offline.' : 'Could not list disks: ' + err.message;
+    host.appendChild(e);
+    return;
+  }
+
+  disks = data.disks || [];
+  host.textContent = '';
+
+  if (!disks.length) {
+    const e = document.createElement('div');
+    e.className = 'hint';
+    e.textContent = 'No installable disks were found.';
+    host.appendChild(e);
+    return;
+  }
+
+  disks.forEach((d) => {
+    const el = document.createElement('div');
+    el.className = 'disk' + (d.blocked ? ' blocked' : '');
+
+    const icon = document.createElement('div');
+    icon.className = 'icon';
+    icon.textContent = d.removable ? '🔌' : d.rotational ? '💽' : '⚡';
+
+    const info = document.createElement('div');
+    info.className = 'info';
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = d.path + (d.model ? ' — ' + d.model : '');
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = d.blocked
+      ? d.blocked_reason
+      : [d.removable ? 'Removable' : 'Internal',
+         d.rotational ? 'HDD' : 'SSD/Flash',
+         d.partitions ? d.partitions + ' existing partition' + (d.partitions === 1 ? '' : 's') : 'unpartitioned',
+         d.contents || ''].filter(Boolean).join(' · ');
+    info.append(name, meta);
+
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.textContent = d.size_h;
+
+    el.append(icon, info, cap);
+    if (!d.blocked) {
+      el.addEventListener('click', () => {
+        chosen = d;
+        document.querySelectorAll('.disk').forEach((x) => x.classList.remove('sel'));
+        el.classList.add('sel');
+        $('to2').disabled = false;
+      });
+    }
+    host.appendChild(el);
+  });
+
+  if (data.firmware) {
+    notice('Firmware mode detected: ' + data.firmware.toUpperCase() +
+           '. WebOS will install a ' + data.firmware.toUpperCase() + ' bootloader.');
+  }
+}
+
+$('btn-rescan').addEventListener('click', loadDisks);
+$('to2').addEventListener('click', () => { if (chosen) goto(2); });
+$('back1').addEventListener('click', () => goto(1));
+$('back2').addEventListener('click', () => goto(2));
+
+/* --------------------------------------------------------- step two */
+
+function fillSelects() {
+  const tz = $('f-tz');
+  const guess = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const list = TIMEZONES.includes(guess) ? TIMEZONES : [guess, ...TIMEZONES];
+  list.forEach((z) => {
+    const o = document.createElement('option');
+    o.value = z;
+    o.textContent = z.replace(/_/g, ' ');
+    tz.appendChild(o);
+  });
+  tz.value = list.includes(guess) ? guess : 'UTC';
+
+  const kb = $('f-kb');
+  KEYBOARDS.forEach(([code, label]) => {
+    const o = document.createElement('option');
+    o.value = code;
+    o.textContent = label;
+    kb.appendChild(o);
+  });
+  kb.value = 'us';
+}
+
+function validate() {
+  let ok = true;
+  const host = $('f-host').value.trim();
+  const user = $('f-user').value.trim();
+  const p1 = $('f-pass').value;
+  const p2 = $('f-pass2').value;
+
+  const set = (id, msg) => { $(id).textContent = msg || ''; if (msg) ok = false; };
+
+  set('e-host', /^[a-z0-9][a-z0-9-]{0,62}$/.test(host)
+    ? '' : 'Lowercase letters, digits and hyphens only.');
+  set('e-user', /^[a-z_][a-z0-9_-]{0,31}$/.test(user)
+    ? (['root','daemon','bin','sys','nobody'].includes(user) ? 'Reserved name.' : '')
+    : 'Lowercase letters, digits, - and _ ; must not start with a digit.');
+  set('e-pass', p1.length >= 4 ? '' : 'At least 4 characters.');
+  set('e-pass2', p1 === p2 ? '' : 'Passwords do not match.');
+
+  return ok;
+}
+
+['f-host','f-user','f-pass','f-pass2'].forEach((id) =>
+  $(id).addEventListener('input', () => validate())
+);
+
+$('to3').addEventListener('click', () => {
+  if (!validate()) return;
+  renderSummary();
+  goto(3);
+});
+
+/* ------------------------------------------------------- step three */
+
+function options() {
+  return {
+    disk: chosen.path,
+    hostname: $('f-host').value.trim(),
+    username: $('f-user').value.trim(),
+    password: $('f-pass').value,
+    autologin: $('f-autologin').checked,
+    timezone: $('f-tz').value,
+    keyboard: $('f-kb').value,
+  };
+}
+
+function renderSummary() {
+  const o = options();
+  const rows = [
+    ['Target disk', chosen.path + (chosen.model ? ' (' + chosen.model + ')' : '')],
+    ['Capacity', chosen.size_h],
+    ['Will be erased', chosen.partitions
+      ? chosen.partitions + ' partition' + (chosen.partitions === 1 ? '' : 's') + ' — ' + (chosen.contents || 'unknown contents')
+      : 'entire disk'],
+    ['Computer name', o.hostname],
+    ['Username', o.username],
+    ['Automatic login', o.autologin ? 'yes' : 'no'],
+    ['Time zone', o.timezone],
+    ['Keyboard', o.keyboard],
+  ];
+  const dl = $('summary');
+  dl.textContent = '';
+  rows.forEach(([k, v]) => {
+    const dt = document.createElement('dt');
+    dt.textContent = k;
+    const dd = document.createElement('dd');
+    dd.textContent = v;
+    dl.append(dt, dd);
+  });
+  $('confirm-label').textContent =
+    'I understand that everything on ' + chosen.path + ' will be erased.';
+  $('f-confirm').checked = false;
+  $('do-install').disabled = true;
+}
+
+$('f-confirm').addEventListener('change', (e) => {
+  $('do-install').disabled = !e.target.checked;
+});
+
+$('do-install').addEventListener('click', async () => {
+  $('do-install').disabled = true;
+  goto(4);
+  try {
+    await WebOS.installStart(options());
+  } catch (err) {
+    logLine('Could not start the installer: ' + err.message, 'e');
+    $('phase').textContent = 'Failed to start';
+    $('btn-close').style.display = 'inline-block';
+    return;
+  }
+  poll();
+});
+
+/* -------------------------------------------------------- step four */
+
+let seenLines = 0;
+
+function logLine(text, cls) {
+  const el = $('log');
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+  const span = document.createElement('div');
+  if (cls) span.className = cls;
+  span.textContent = text;
+  el.appendChild(span);
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+async function poll() {
+  let s;
+  try {
+    s = await WebOS.installStatus();
+  } catch (err) {
+    setTimeout(poll, 1500);
+    return;
+  }
+
+  if (Array.isArray(s.log)) {
+    for (let i = seenLines; i < s.log.length; i++) {
+      const line = s.log[i];
+      logLine(line, /error|fail/i.test(line) ? 'e' : /^✓|done|complete/i.test(line) ? 's' : '');
+    }
+    seenLines = s.log.length;
+  }
+
+  $('phase').textContent = s.phase || 'Working…';
+  $('bar').style.width = (s.percent || 0) + '%';
+  $('pct').textContent = (s.percent || 0) + '%';
+
+  if (s.state === 'done') {
+    $('phase').textContent = '✓ Installation complete';
+    $('bar').style.width = '100%';
+    $('pct').textContent = '100%';
+    $('finish-hint').textContent =
+      'WebOS is installed on ' + (s.disk || 'the disk') + '. Remove the installation media before restarting.';
+    $('btn-reboot').style.display = 'inline-block';
+    $('btn-close').style.display = 'inline-block';
+    $('dot4').className = 'dot done';
+    $('dot4').textContent = '✓';
+    return;
+  }
+
+  if (s.state === 'error') {
+    $('phase').textContent = '✕ Installation failed';
+    $('finish-hint').textContent = s.error || 'See the log above.';
+    $('btn-close').style.display = 'inline-block';
+    return;
+  }
+
+  polling = setTimeout(poll, 900);
+}
+
+$('btn-reboot').addEventListener('click', () => {
+  if (confirm('Restart now? Remove the USB stick or disc first.')) {
+    WebOS.reboot().catch((e) => logLine(e.message, 'e'));
+  }
+});
+$('btn-close').addEventListener('click', () => WebOS.navigate('/newtab.html'));
+
+/* --------------------------------------------------------------- go */
+
+fillSelects();
+loadDisks();
+
+// If an install is already running (the tab was reopened), rejoin it.
+WebOS.installStatus().then((s) => {
+  if (s.state === 'running' || s.state === 'done' || s.state === 'error') {
+    goto(4);
+    poll();
+  }
+}).catch(() => {});
+</script>
+</body>
+</html>

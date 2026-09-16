@@ -1,0 +1,18 @@
+# WebOS privilege escalation.
+#
+# The system bridge runs as an ordinary user so that its file and process
+# access is bounded by normal Unix permissions. These are the only things it
+# is allowed to do as root. Granted to the group rather than to a username,
+# because the installer renames the account and group membership survives that.
+#
+# webos-helper is the whole root attack surface of a running WebOS machine:
+# see /usr/lib/webos/webos-helper.
+
+%webosadm ALL=(root) NOPASSWD: /usr/lib/webos/webos-helper install
+%webosadm ALL=(root) NOPASSWD: /usr/bin/nmcli
+%webosadm ALL=(root) NOPASSWD: /usr/bin/brightnessctl
+%webosadm ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff
+%webosadm ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
+
+# sudo -n from a daemon has no controlling terminal.
+Defaults:%webosadm !requiretty

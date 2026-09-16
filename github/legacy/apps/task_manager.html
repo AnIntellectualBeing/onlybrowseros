@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Monitor</title>
+  <style>
+    :root {
+      --bg: #0f172a; --card: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.1); --accent: #10b981;
+      --text: #f8fafc; --muted: #94a3b8; --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); }
+    body { overflow-y: auto; padding: 24px 26px 50px; }
+
+    h1 { font-size: 1.4rem; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+    .subtitle { color: var(--muted); font-size: 0.84rem; margin-bottom: 22px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 18px; margin-bottom: 22px; }
+    .card { background: var(--card); border: 1px solid var(--border);
+            border-radius: 14px; padding: 18px 20px; }
+    .card-title { font-size: 0.72rem; color: var(--muted); text-transform: uppercase;
+                  letter-spacing: 0.6px; margin-bottom: 10px; }
+    .stat-val { font-size: 1.9rem; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
+    .bar-bg { width: 100%; height: 8px; background: rgba(255,255,255,0.1);
+              border-radius: 4px; overflow: hidden; }
+    .bar-fill { height: 100%; width: 0%; border-radius: 4px; transition: width 0.5s ease;
+                background: var(--accent); }
+    .detail { font-size: 0.78rem; color: var(--muted); margin-top: 8px; }
+
+    .spark { display: flex; align-items: flex-end; gap: 2px; height: 34px; margin-top: 10px; }
+    .spark div { flex: 1; background: rgba(16,185,129,0.5); border-radius: 1px; min-height: 1px; }
+
+    .info-list { display: flex; flex-direction: column; gap: 9px; font-size: 0.86rem; }
+    .info-row { display: flex; justify-content: space-between; gap: 16px;
+                border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; }
+    .info-row:last-child { border-bottom: none; }
+    .info-row span { color: var(--muted); }
+    .info-row strong { font-family: monospace; text-align: right; word-break: break-all; font-weight: 500; }
+
+    .proc-head { display: flex; align-items: center; gap: 14px; margin: 26px 0 12px; }
+    .proc-head h2 { font-size: 1rem; }
+    .proc-head input {
+      margin-left: auto; background: rgba(2,6,23,0.7); border: 1px solid var(--border);
+      color: var(--text); border-radius: 9px; padding: 7px 12px; font-size: 0.83rem;
+      outline: none; width: 220px;
+    }
+    .proc-head input:focus { border-color: var(--accent); }
+    .proc-head select {
+      background: rgba(2,6,23,0.7); border: 1px solid var(--border); color: var(--text);
+      border-radius: 9px; padding: 7px 10px; font-size: 0.83rem; outline: none;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.83rem;
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 14px; overflow: hidden; }
+    th { text-align: left; padding: 10px 14px; font-size: 0.68rem; text-transform: uppercase;
+         letter-spacing: 0.5px; color: var(--muted); background: rgba(2,6,23,0.5);
+         border-bottom: 1px solid var(--border); font-weight: 600; }
+    th.num, td.num { text-align: right; }
+    td { padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.04);
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.04); }
+    td.cmd { max-width: 0; width: 45%; font-family: monospace; color: var(--muted); }
+    .kill {
+      background: rgba(239,68,68,0.14); border: 1px solid rgba(239,68,68,0.4);
+      color: #fca5a5; border-radius: 6px; padding: 3px 9px; font-size: 0.72rem; cursor: pointer;
+    }
+    .kill:hover { background: rgba(239,68,68,0.3); }
+
+    #err { display: none; padding: 14px 18px; border-radius: 12px; margin-bottom: 18px;
+           background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4);
+           font-size: 0.85rem; }
+    #err.show { display: block; }
+  </style>
+</head>
+<body>
+
+  <h1>📊 System Monitor</h1>
+  <div class="subtitle" id="subtitle">—</div>
+
+  <div id="err"></div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-title">Processor</div>
+      <div class="stat-val" id="cpu-val">—</div>
+      <div class="bar-bg"><div class="bar-fill" id="cpu-bar"></div></div>
+      <div class="spark" id="cpu-spark"></div>
+      <div class="detail" id="cpu-detail">—</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Memory</div>
+      <div class="stat-val" id="ram-val" style="color:#6366f1">—</div>
+      <div class="bar-bg"><div class="bar-fill" id="ram-bar" style="background:#6366f1"></div></div>
+      <div class="spark" id="ram-spark"></div>
+      <div class="detail" id="ram-detail">—</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Storage</div>
+      <div class="stat-val" id="disk-val" style="color:#a855f7">—</div>
+      <div class="bar-bg"><div class="bar-fill" id="disk-bar" style="background:#a855f7"></div></div>
+      <div class="detail" id="disk-detail">—</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Battery</div>
+      <div class="stat-val" id="bat-val" style="color:#f59e0b">—</div>
+      <div class="bar-bg"><div class="bar-fill" id="bat-bar" style="background:#f59e0b"></div></div>
+      <div class="detail" id="bat-detail">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">System</div>
+    <div class="info-list">
+      <div class="info-row"><span>Hostname</span><strong id="sys-hostname">—</strong></div>
+      <div class="info-row"><span>WebOS version</span><strong id="sys-version">—</strong></div>
+      <div class="info-row"><span>Base system</span><strong id="sys-base">—</strong></div>
+      <div class="info-row"><span>Kernel</span><strong id="sys-kernel">—</strong></div>
+      <div class="info-row"><span>Processor</span><strong id="sys-cpu">—</strong></div>
+      <div class="info-row"><span>Load average</span><strong id="sys-load">—</strong></div>
+      <div class="info-row"><span>Network</span><strong id="sys-net">—</strong></div>
+      <div class="info-row"><span>Session</span><strong id="sys-session">—</strong></div>
+      <div class="info-row"><span>Uptime</span><strong id="sys-uptime">—</strong></div>
+    </div>
+  </div>
+
+  <div class="proc-head">
+    <h2>Processes</h2>
+    <span class="detail" id="proc-count"></span>
+    <input id="filter" placeholder="Filter by name…" spellcheck="false">
+    <select id="sort">
+      <option value="cpu">Sort by CPU</option>
+      <option value="mem">Sort by memory</option>
+      <option value="pid">Sort by PID</option>
+      <option value="name">Sort by name</option>
+    </select>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:80px">PID</th>
+        <th style="width:130px">Name</th>
+        <th style="width:90px">User</th>
+        <th class="num" style="width:70px">CPU</th>
+        <th class="num" style="width:90px">Memory</th>
+        <th>Command</th>
+        <th style="width:60px"></th>
+      </tr>
+    </thead>
+    <tbody id="procs"></tbody>
+  </table>
+
+<script src="/webos-api.js"></script>
+<script>
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+
+const cpuHist = [];
+const ramHist = [];
+let procs = [];
+
+function spark(host, values, max) {
+  host.textContent = '';
+  const slice = values.slice(-40);
+  slice.forEach((v) => {
+    const bar = document.createElement('div');
+    bar.style.height = Math.max(1, (v / max) * 100) + '%';
+    host.appendChild(bar);
+  });
+}
+
+function showError(msg) {
+  const el = $('err');
+  el.textContent = msg;
+  el.classList.toggle('show', !!msg);
+}
+
+async function updateStats() {
+  let d;
+  try {
+    d = await WebOS.status();
+    showError('');
+  } catch (err) {
+    showError(err.offline
+      ? 'The system bridge is not responding. Live figures are unavailable.'
+      : 'Could not read system status: ' + err.message);
+    return;
+  }
+
+  $('subtitle').textContent =
+    (d.hostname || '') + ' · ' + (d.live ? 'live session' : 'installed') + ' · up ' + (d.uptime || '—');
+
+  if (d.cpu) {
+    $('cpu-val').textContent = d.cpu.percent + '%';
+    $('cpu-bar').style.width = d.cpu.percent + '%';
+    $('cpu-detail').textContent = d.cpu.cores + ' cores · ' + (d.cpu.model || '');
+    $('sys-cpu').textContent = (d.cpu.model || '—') + ' × ' + d.cpu.cores;
+    cpuHist.push(d.cpu.percent);
+    spark($('cpu-spark'), cpuHist, 100);
+  }
+
+  if (d.ram) {
+    $('ram-val').textContent = d.ram.percent + '%';
+    $('ram-bar').style.width = d.ram.percent + '%';
+    $('ram-detail').textContent =
+      d.ram.used_mb + ' MB of ' + d.ram.total_mb + ' MB' +
+      (d.ram.swap_total_mb ? ' · swap ' + d.ram.swap_used_mb + '/' + d.ram.swap_total_mb + ' MB' : ' · no swap');
+    ramHist.push(d.ram.percent);
+    spark($('ram-spark'), ramHist, 100);
+  }
+
+  if (d.disk) {
+    $('disk-val').textContent = d.disk.percent + '%';
+    $('disk-bar').style.width = d.disk.percent + '%';
+    $('disk-detail').textContent =
+      d.disk.used_gb + ' GB used of ' + d.disk.total_gb + ' GB · ' + d.disk.free_gb + ' GB free';
+  }
+
+  if (d.battery) {
+    if (d.battery.present) {
+      $('bat-val').textContent = d.battery.percent + '%';
+      $('bat-bar').style.width = d.battery.percent + '%';
+      $('bat-detail').textContent = d.battery.status;
+    } else {
+      $('bat-val').textContent = 'AC';
+      $('bat-bar').style.width = '100%';
+      $('bat-detail').textContent = 'No battery detected — running on mains power';
+    }
+  }
+
+  $('sys-hostname').textContent = d.hostname || '—';
+  $('sys-version').textContent = d.version || '—';
+  $('sys-base').textContent = d.base || '—';
+  $('sys-kernel').textContent = d.kernel || '—';
+  $('sys-load').textContent = d.load ? d.load.join('  ') : '—';
+  $('sys-session').textContent = d.live ? 'Live media' : 'Installed to disk';
+  $('sys-uptime').textContent = d.uptime || '—';
+  $('sys-net').textContent = d.network
+    ? (d.network.connected
+        ? (d.network.ssid ? 'Wi-Fi: ' + d.network.ssid : 'Wired') + (d.network.ip ? ' · ' + d.network.ip : '')
+        : 'Disconnected')
+    : '—';
+}
+
+async function updateProcs() {
+  try {
+    const res = await WebOS.processes();
+    procs = res.processes || [];
+    renderProcs();
+  } catch (err) { /* the stats card already reports bridge trouble */ }
+}
+
+function renderProcs() {
+  const filter = $('filter').value.trim().toLowerCase();
+  const sort = $('sort').value;
+
+  let list = procs;
+  if (filter) {
+    list = list.filter((p) =>
+      p.name.toLowerCase().includes(filter) || (p.cmd || '').toLowerCase().includes(filter)
+    );
+  }
+
+  list = list.slice().sort((a, b) => {
+    if (sort === 'cpu') return b.cpu - a.cpu;
+    if (sort === 'mem') return b.rss - a.rss;
+    if (sort === 'pid') return a.pid - b.pid;
+    return a.name.localeCompare(b.name);
+  }).slice(0, 200);
+
+  $('proc-count').textContent = procs.length + ' running, showing ' + list.length;
+
+  const tbody = $('procs');
+  tbody.textContent = '';
+  list.forEach((p) => {
+    const tr = document.createElement('tr');
+
+    const add = (text, cls) => {
+      const td = document.createElement('td');
+      if (cls) td.className = cls;
+      td.textContent = text;
+      tr.appendChild(td);
+      return td;
+    };
+
+    add(p.pid, 'num');
+    add(p.name);
+    add(p.user || '—');
+    add(p.cpu.toFixed(1) + '%', 'num');
+    add(WebOS.bytes(p.rss), 'num');
+    const cmd = add(p.cmd || p.name, 'cmd');
+    cmd.title = p.cmd || p.name;
+
+    const tdKill = document.createElement('td');
+    const btn = document.createElement('button');
+    btn.className = 'kill';
+    btn.textContent = 'End';
+    btn.addEventListener('click', async () => {
+      if (!confirm('End process ' + p.pid + ' (' + p.name + ')?')) return;
+      try {
+        await WebOS.kill(p.pid, 'TERM');
+        updateProcs();
+      } catch (err) {
+        alert('Could not end the process: ' + err.message);
+      }
+    });
+    tdKill.appendChild(btn);
+    tr.appendChild(tdKill);
+
+    tbody.appendChild(tr);
+  });
+}
+
+$('filter').addEventListener('input', renderProcs);
+$('sort').addEventListener('change', renderProcs);
+
+updateStats();
+updateProcs();
+setInterval(updateStats, 2000);
+setInterval(updateProcs, 3000);
+</script>
+</body>
+</html>

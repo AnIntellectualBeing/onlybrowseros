@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""
+OnlyBrowserOS settings helper for the browser.
+
+The OnlyBrowserOS Firefox extension (src/firefox/tablimit) starts this through
+native messaging (/usr/lib/mozilla/native-messaging-hosts/
+onlybrowseros.settings.json). It runs as the person using the computer and
+answers one message per run:
+
+    {"cmd": "get"}                                       everything the settings page shows
+    {"cmd": "set-tabs", "value": "auto" | "1".."20"}      how powerful the computer is
+    {"cmd": "set-text-size", "value": "normal" | "large" | "larger"}
+    {"cmd": "set-timezone", "value": "Europe/Paris"}
+    {"cmd": "set-keyboard", "value": "fr"}
+    {"cmd": "set-password", "current": "...", "new": "..."}
+    {"cmd": "list-files"}                                 downloads and USB-stick files the browser can open
+    {"cmd": "delete-file", "path": "..."}                 only a file directly in ~/Downloads
+    {"cmd": "open-passwords"}                             opens about:logins in the browser
+
+Tabs, time zone and keyboard are saved by root helpers through sudo
+(set-tab-limit, system-setting); the password through sudo chpasswd, which
+asks for the current password. Messages are a 4-byte native-endian length
+followed by JSON, both ways.
+"""
+
+import getpass
+import json
+import os
+import re
+import struct
+import subprocess
+import sys
+from pathlib import Path
+
+LIB = "/usr/lib/onlybrowseros"
+sys.path.insert(0, f"{LIB}/shared")
+from keyboards import KEYBOARDS  # noqa: E402
+
+STATE = Path("/run/onlybrowseros/state.json")
+DISPLAY_CONF = Path.home() / ".config" / "onlybrowseros" / "display.conf"
+# Text size is X's font resolution, which GTK and Firefox both follow.
+# Keep in step with src/session/onlybrowseros-session.
+TEXT_SIZES = {"normal": 96, "large": 120, "larger": 144}
+ZONE_RE = re.compile(r"(Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)"
+                     r"/[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)?")
+
+# Files the browser itself can open, by kind. Keep in step with
+# OPENABLE_EXTENSIONS in src/firefox/tablimit/background.js.
+OPENABLE = {
+    "pdf": "pdf",
+    **dict.fromkeys(("jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg"), "picture"),
+    **dict.fromkeys(("mp4", "webm", "ogv"), "video"),
+    **dict.fromkeys(("mp3", "ogg", "oga", "opus", "wav", "m4a", "flac"), "music"),
+    "txt": "text",
+}
+DOWNLOADS = Path.home() / "Downloads"
+MEDIA = Path("/media")          # USB sticks, mounted by /usr/lib/onlybrowseros/usb-mount
+MAX_FILES = 500
+SKIP_FOLDERS = {"System Volume Information", "$RECYCLE.BIN", "lost+found"}
+
+
+# ------------------------------------------------------------- messaging
+
+def receive():
+    header = sys.stdin.buffer.read(4)
+    if len(header) < 4:
+        return None
+    (length,) = struct.unpack("=I", header)
+    if length > 65536:
+        return None
+    return json.loads(sys.stdin.buffer.read(length) or b"null")
+
+
+def send(message):
+    data = json.dumps(message).encode()
+    sys.stdout.buffer.write(struct.pack("=I", len(data)) + data)
+    sys.stdout.buffer.flush()
+
+
+def failure(text):
+    return {"ok": False, "error": text}
+
+
+# ------------------------------------------------------------- reading
+
+def memory_mb():
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError):
+        pass
+    return 2048
+
+
+def is_live():
+    try:
+        return "boot=live" in Path("/proc/cmdline").read_text().split()
+    except OSError:
+        return False
+
+
+def text_size():
+    try:
+        m = re.search(r"^TEXT_SIZE=(\w+)", DISPLAY_CONF.read_text(), re.M)
+    except OSError:
+        m = None
+    return m.group(1) if m and m.group(1) in TEXT_SIZES else "normal"
+
+
+def timezone():
+    try:
+        link = os.readlink("/etc/localtime")
+        zone = link.split("zoneinfo/", 1)[1]
+    except (OSError, IndexError):
+        try:
+            zone = Path("/etc/timezone").read_text().strip()
+        except OSError:
+            zone = "UTC"
+    return "UTC" if zone in ("Etc/UTC", "UTC", "Etc/Universal", "") else zone
+
+
+def timezones():
+    try:
+        from zoneinfo import available_timezones
+        names = available_timezones()
+    except ImportError:
+        names = set()
+    regions = {}
+    for name in names:
+        if ZONE_RE.fullmatch(name):
+            region, city = name.split("/", 1)
+            regions.setdefault(region, []).append(city)
+    return {region: sorted(cities) for region, cities in sorted(regions.items())}
+
+
+def keyboard():
+    try:
+        m = re.search(r'^XKBLAYOUT="?([a-z]+)', Path("/etc/default/keyboard").read_text(), re.M)
+    except OSError:
+        m = None
+    return m.group(1) if m else "us"
+
+
+def summary():
+    try:
+        data = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        data = {}
+    return {
+        "ok": True,
+        "live": is_live(),
+        "memory_mb": int(data.get("memory_mb") or memory_mb()),
+        "tab_limit": int(data.get("tab_limit") or 2),
+        "limit_is_automatic": bool(data.get("limit_is_automatic", True)),
+        "text_size": text_size(),
+        "timezone": timezone(),
+        "keyboard": keyboard(),
+    }
+
+
+# ------------------------------------------------------------- changing
+
+def sudo(*args):
+    try:
+        p = subprocess.run(["sudo", "-n", *args], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"Could not save the setting ({exc})."
+    if p.returncode == 0:
+        return None
+    lines = (p.stderr or p.stdout).strip().splitlines()
+    if lines and "password is required" in lines[-1]:
+        return "This computer does not allow changing this setting."
+    return "Could not save the setting." + (f" ({lines[-1]})" if lines else "")
+
+
+def set_tabs(message):
+    value = str(message.get("value", "")).strip().lower()
+    if value != "auto" and not (re.fullmatch(r"[0-9]{1,2}", value) and 1 <= int(value) <= 20):
+        return failure("That setting is not allowed."), None
+    error = sudo(f"{LIB}/set-tab-limit", value)
+    return (failure(error) if error else summary()), None
+
+
+def restart_browser_and_taskbar():
+    """After the answer is sent: start the taskbar and the browser again so
+    they pick up the new text size. Tabs come back."""
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/onlybrowseros-{os.getuid()}") / "onlybrowseros"
+    script = (f'sleep 2; mkdir -p "{runtime}"; touch "{runtime}/restart-browser"; '
+              "pkill -x obos-panel; pkill -TERM -x firefox-esr")
+    subprocess.Popen(["sh", "-c", script], start_new_session=True, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def set_text_size(message):
+    value = str(message.get("value", ""))
+    if value not in TEXT_SIZES:
+        return failure("That text size is not allowed."), None
+    try:
+        DISPLAY_CONF.parent.mkdir(parents=True, exist_ok=True)
+        DISPLAY_CONF.write_text("# Text size chosen in the OnlyBrowserOS settings: normal, large or larger.\n"
+                                f"TEXT_SIZE={value}\n")
+    except OSError as exc:
+        return failure(f"Could not save the text size ({exc})."), None
+    subprocess.run(["xrdb", "-merge"], input=f"Xft.dpi: {TEXT_SIZES[value]}\n", text=True,
+                   capture_output=True, timeout=10)
+    return summary(), restart_browser_and_taskbar
+
+
+def set_timezone(message):
+    value = str(message.get("value", ""))
+    if value != "UTC" and not ZONE_RE.fullmatch(value):
+        return failure("Unknown time zone."), None
+    error = sudo(f"{LIB}/system-setting", "timezone", value)
+    return (failure(error) if error else summary()), None
+
+
+def set_keyboard(message):
+    value = str(message.get("value", ""))
+    if value not in dict(KEYBOARDS):
+        return failure("Unknown keyboard layout."), None
+    error = sudo(f"{LIB}/system-setting", "keyboard", value)
+    if error:
+        return failure(error), None
+    subprocess.run(["setxkbmap", value], capture_output=True, timeout=10)
+    return summary(), None
+
+
+def set_password(message):
+    if is_live():
+        return failure("The password can be changed after OnlyBrowserOS is installed."), None
+    current, new = str(message.get("current", "")), str(message.get("new", ""))
+    if len(new) < 4:
+        return failure("Use at least 4 characters."), None
+    if any(c in current + new for c in "\n\r"):
+        return failure("A password cannot contain a line break."), None
+    user = getpass.getuser()
+    # sudo reads the current password from the first line; chpasswd gets the rest.
+    try:
+        p = subprocess.run(["sudo", "-S", "-k", "-p", "", "chpasswd"], input=f"{current}\n{user}:{new}\n",
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return failure(f"Could not change the password ({exc})."), None
+    if p.returncode == 0:
+        return summary(), None
+    text = p.stderr.lower()
+    if "incorrect password" in text or "try again" in text:
+        return failure("The current password is wrong."), None
+    if "not in the sudoers" in text or "not allowed" in text:
+        return failure("This account cannot change the password here."), None
+    return failure("Could not change the password."), None
+
+
+# ----------------------------------------------------------------- files
+
+def openable(path):
+    return (not path.name.startswith(".") and path.suffix[1:].lower() in OPENABLE
+            and path.is_file() and not path.is_symlink())
+
+
+def file_entry(path, base):
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    folder = path.parent.relative_to(base)
+    return {
+        "name": path.name,
+        "path": str(path),
+        "url": path.as_uri(),
+        "size": info.st_size,
+        "modified": int(info.st_mtime),
+        "kind": OPENABLE[path.suffix[1:].lower()],
+        "folder": "" if str(folder) == "." else str(folder),
+    }
+
+
+def stick_files(mount):
+    files = []
+    for root, dirs, names in os.walk(mount):
+        depth = len(Path(root).relative_to(mount).parts)
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in SKIP_FOLDERS) if depth < 4 else []
+        for name in sorted(names):
+            path = Path(root) / name
+            if openable(path):
+                entry = file_entry(path, mount)
+                if entry:
+                    files.append(entry)
+            if len(files) >= MAX_FILES:
+                return files
+    return files
+
+
+def list_files(_message):
+    downloads = []
+    try:
+        for path in DOWNLOADS.iterdir():
+            if openable(path):
+                entry = file_entry(path, DOWNLOADS)
+                if entry:
+                    downloads.append(entry)
+    except OSError:
+        pass
+    downloads.sort(key=lambda f: -f["modified"])
+    sticks = []
+    try:
+        mounts = sorted(p for p in MEDIA.iterdir() if os.path.ismount(p))
+    except OSError:
+        mounts = []
+    for mount in mounts:
+        sticks.append({"name": mount.name, "files": stick_files(mount)})
+    return {"ok": True, "downloads": downloads[:MAX_FILES], "usb": sticks}, None
+
+
+def delete_file(message):
+    try:
+        target = Path(str(message.get("path", ""))).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return failure("That file is already gone."), None
+    if target.parent != DOWNLOADS.resolve() or not target.is_file():
+        return failure("Only downloaded files can be deleted here."), None
+    try:
+        target.unlink()
+    except OSError as exc:
+        return failure(f"Could not delete the file ({exc})."), None
+    return {"ok": True}, None
+
+
+def open_passwords(_message):
+    subprocess.Popen(["firefox-esr", "--new-tab", "about:logins"], start_new_session=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return {"ok": True}, None
+
+
+HANDLERS = {
+    "set-tabs": set_tabs,
+    "set-text-size": set_text_size,
+    "set-timezone": set_timezone,
+    "set-keyboard": set_keyboard,
+    "set-password": set_password,
+    "list-files": list_files,
+    "delete-file": delete_file,
+    "open-passwords": open_passwords,
+}
+
+
+def main():
+    try:
+        message = receive()
+    except ValueError:
+        message = None
+    if not isinstance(message, dict):
+        send(failure("Bad request."))
+        return 1
+    cmd = message.get("cmd")
+    if cmd == "get":
+        send({**summary(), "timezones": timezones(), "keyboards": KEYBOARDS})
+        return 0
+    if cmd not in HANDLERS:
+        send(failure("Unknown request."))
+        return 1
+    reply, after = HANDLERS[cmd](message)
+    send(reply)
+    if after:
+        after()
+    return 0 if reply.get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

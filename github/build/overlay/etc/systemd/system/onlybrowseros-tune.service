@@ -1,0 +1,13 @@
+[Unit]
+Description=Fit the browser to this computer's memory
+Documentation=file:///usr/lib/onlybrowseros/tune
+After=local-fs.target
+Before=getty@tty1.service systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/onlybrowseros/tune
+
+[Install]
+WantedBy=multi-user.target

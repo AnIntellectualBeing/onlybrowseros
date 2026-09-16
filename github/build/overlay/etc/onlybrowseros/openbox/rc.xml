@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OnlyBrowserOS window manager settings.
+
+  The browser fills the screen above the taskbar with no title bar, so there
+  is nothing to minimise or lose. The 44 px bottom margin is the taskbar's
+  height (PANEL_HEIGHT in /usr/lib/onlybrowseros/panel/panel.py).
+-->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+
+  <resistance>
+    <strength>10</strength>
+    <screen_edge_strength>20</screen_edge_strength>
+  </resistance>
+
+  <focus>
+    <focusNew>yes</focusNew>
+    <followMouse>no</followMouse>
+    <focusLast>yes</focusLast>
+    <underMouse>no</underMouse>
+    <focusDelay>0</focusDelay>
+    <raiseOnFocus>no</raiseOnFocus>
+  </focus>
+
+  <placement>
+    <policy>Smart</policy>
+    <center>yes</center>
+    <monitor>Primary</monitor>
+    <primaryMonitor>1</primaryMonitor>
+  </placement>
+
+  <theme>
+    <name>Onyx</name>
+    <titleLayout>LC</titleLayout>
+    <keepBorder>yes</keepBorder>
+    <animateIconify>no</animateIconify>
+    <font place="ActiveWindow"><name>DejaVu Sans</name><size>10</size><weight>Bold</weight><slant>Normal</slant></font>
+    <font place="InactiveWindow"><name>DejaVu Sans</name><size>10</size><weight>Bold</weight><slant>Normal</slant></font>
+    <font place="OnScreenDisplay"><name>DejaVu Sans</name><size>11</size><weight>Bold</weight><slant>Normal</slant></font>
+  </theme>
+
+  <desktops>
+    <number>1</number>
+    <firstdesk>1</firstdesk>
+    <names><name>OnlyBrowserOS</name></names>
+    <popupTime>0</popupTime>
+  </desktops>
+
+  <resize>
+    <drawContents>yes</drawContents>
+    <popupShow>Never</popupShow>
+  </resize>
+
+  <margins>
+    <top>0</top>
+    <bottom>44</bottom>
+    <left>0</left>
+    <right>0</right>
+  </margins>
+
+  <dock>
+    <noStrut>yes</noStrut>
+    <autoHide>no</autoHide>
+  </dock>
+
+  <keyboard>
+    <chainQuitKey>C-g</chainQuitKey>
+
+    <!-- Switch between the browser, a private window and dialogs. -->
+    <keybind key="A-Tab">
+      <action name="NextWindow">
+        <dialog>icons</dialog>
+        <finalactions><action name="Focus"/><action name="Raise"/><action name="Unshade"/></finalactions>
+      </action>
+    </keybind>
+
+    <!-- Laptop media keys. -->
+    <keybind key="XF86AudioRaiseVolume">
+      <action name="Execute"><command>wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+</command></action>
+    </keybind>
+    <keybind key="XF86AudioLowerVolume">
+      <action name="Execute"><command>wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-</command></action>
+    </keybind>
+    <keybind key="XF86AudioMute">
+      <action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle</command></action>
+    </keybind>
+    <keybind key="XF86AudioMicMute">
+      <action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle</command></action>
+    </keybind>
+    <keybind key="XF86MonBrightnessUp">
+      <action name="Execute"><command>brightnessctl -q -c backlight set 10%+</command></action>
+    </keybind>
+    <keybind key="XF86MonBrightnessDown">
+      <action name="Execute"><command>brightnessctl -q -c backlight -n 5% set 10%-</command></action>
+    </keybind>
+  </keyboard>
+
+  <mouse>
+    <dragThreshold>3</dragThreshold>
+    <doubleClickTime>400</doubleClickTime>
+    <screenEdgeWarpTime>0</screenEdgeWarpTime>
+
+    <!-- Only the Client context may bind a plain click: openbox passes those
+         clicks on to the window. A plain click bound on Frame (which covers the
+         window's contents too) is swallowed, and nothing could be clicked. -->
+    <context name="Client">
+      <mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Middle" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Right" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+    </context>
+    <context name="Titlebar">
+      <mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Left" action="Drag"><action name="Move"/></mousebind>
+    </context>
+    <context name="Close">
+      <mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Left" action="Click"><action name="Close"/></mousebind>
+    </context>
+  </mouse>
+
+  <applications>
+    <!-- The browser: full screen above the taskbar, no title bar. -->
+    <application class="firefox*" role="browser" type="normal">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <focus>yes</focus>
+    </application>
+
+    <!-- Taskbar and its menus. -->
+    <application name="obos-panel*">
+      <decor>no</decor>
+      <skip_taskbar>yes</skip_taskbar>
+      <skip_pager>yes</skip_pager>
+      <layer>above</layer>
+    </application>
+
+    <!-- The installer uses the whole screen so small laptop screens fit it.
+         It stays in the normal layer so taskbar menus still open on top. -->
+    <application name="obos-installer">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <focus>yes</focus>
+    </application>
+
+    <!-- The home screen shown after the browser is closed. -->
+    <application name="obos-home">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <focus>yes</focus>
+    </application>
+  </applications>
+
+</openbox_config>

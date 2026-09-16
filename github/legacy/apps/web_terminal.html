@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --chrome: rgba(30, 41, 59, 0.75);
+      --border: rgba(255, 255, 255, 0.1);
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: #e2e8f0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #wrap { display: flex; flex-direction: column; height: 100%; }
+
+    #bar {
+      flex: 0 0 auto;
+      height: 40px;
+      background: var(--chrome);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 14px;
+      font-size: 0.85rem;
+      user-select: none;
+    }
+    #bar .title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    #bar .spacer { flex: 1; }
+    #bar .status { color: var(--muted); font-size: 0.78rem; }
+    .bar-btn {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      color: #e2e8f0;
+      border-radius: 7px;
+      padding: 5px 11px;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .bar-btn:hover { background: rgba(255,255,255,0.12); }
+
+    #screen-host {
+      flex: 1 1 auto;
+      position: relative;
+      overflow: hidden;
+      padding: 8px 10px;
+      cursor: text;
+    }
+
+    #screen {
+      font-family: "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
+      font-size: 14px;
+      line-height: 1.25;
+      white-space: pre;
+      position: absolute;
+      top: 8px;
+      left: 10px;
+      user-select: text;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #screen .cur {
+      background: #e2e8f0;
+      color: #0b1020;
+    }
+    #screen .cur.hollow {
+      background: transparent;
+      box-shadow: inset 0 0 0 1px #e2e8f0;
+    }
+
+    /* Off-screen input sink: keeps a real caret target so IME and mobile
+       keyboards work, without ever showing the element. */
+    #sink {
+      position: absolute;
+      left: -9999px;
+      top: 0;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      border: 0;
+      padding: 0;
+      resize: none;
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+      background: rgba(11, 16, 32, 0.92);
+      font-size: 0.9rem;
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+    }
+    #overlay.show { display: flex; }
+  </style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="bar">
+    <span class="title">💻 Terminal</span>
+    <span class="status" id="dims">—</span>
+    <span class="spacer"></span>
+    <span class="status" id="conn">connecting…</span>
+    <button class="bar-btn" id="btn-ctrlc">Ctrl+C</button>
+    <button class="bar-btn" id="btn-clear">Clear</button>
+    <button class="bar-btn" id="btn-restart">Restart</button>
+  </div>
+
+  <div id="screen-host">
+    <div id="screen"></div>
+    <textarea id="sink" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false"></textarea>
+    <div id="overlay"><div id="overlay-text"></div><button class="bar-btn" id="overlay-btn">Start a new session</button></div>
+  </div>
+</div>
+
+<script src="/webos-api.js"></script>
+<script>
+'use strict';
+
+/* ===================================================================
+   A VT100/xterm subset good enough for a login shell, nano, htop, top,
+   less and vim. Anything it does not understand is swallowed rather
+   than printed, which keeps the screen readable instead of littered
+   with escape sequences.
+   =================================================================== */
+
+const PALETTE = [
+  '#0b1020', '#ef4444', '#22c55e', '#eab308', '#3b82f6', '#a855f7', '#06b6d4', '#cbd5e1',
+  '#475569', '#f87171', '#4ade80', '#facc15', '#60a5fa', '#c084fc', '#22d3ee', '#f8fafc',
+];
+const DEFAULT_FG = '#e2e8f0';
+const DEFAULT_BG = null; // null means "inherit the app background"
+
+function xterm256(n) {
+  if (n < 16) return PALETTE[n];
+  if (n < 232) {
+    n -= 16;
+    const lv = [0, 95, 135, 175, 215, 255];
+    return `rgb(${lv[Math.floor(n / 36) % 6]},${lv[Math.floor(n / 6) % 6]},${lv[n % 6]})`;
+  }
+  const v = 8 + (n - 232) * 10;
+  return `rgb(${v},${v},${v})`;
+}
+
+function blankCell() {
+  return { c: ' ', f: DEFAULT_FG, b: DEFAULT_BG, bo: false, un: false, rv: false, dim: false };
+}
+
+class Term {
+  constructor(cols, rows) {
+    this.resize(cols, rows, true);
+  }
+
+  resize(cols, rows, initial) {
+    const oldBuf = initial ? null : this.buf;
+    const oldRows = initial ? 0 : this.rows;
+
+    this.cols = Math.max(20, cols);
+    this.rows = Math.max(5, rows);
+    this.buf = [];
+    for (let y = 0; y < this.rows; y++) this.buf.push(this.newRow());
+
+    if (oldBuf) {
+      // Keep the bottom of the old screen, which is where the prompt lives.
+      const keep = Math.min(oldRows, this.rows);
+      const srcStart = oldRows - keep;
+      for (let i = 0; i < keep; i++) {
+        const src = oldBuf[srcStart + i];
+        for (let x = 0; x < Math.min(src.length, this.cols); x++) this.buf[i][x] = src[x];
+      }
+      this.y = Math.min(this.y, this.rows - 1);
+      this.x = Math.min(this.x, this.cols - 1);
+    } else {
+      this.x = 0;
+      this.y = 0;
+      this.savedX = 0;
+      this.savedY = 0;
+      this.cursorVisible = true;
+      this.appCursorKeys = false;
+      this.altBuf = null;
+      this.wrapPending = false;
+      this.state = 'text';
+      this.params = '';
+      this.osc = '';
+      this.attr = blankCell();
+      this.title = '';
+    }
+
+    this.scrollTop = 0;
+    this.scrollBot = this.rows - 1;
+  }
+
+  newRow() {
+    const r = new Array(this.cols);
+    for (let x = 0; x < this.cols; x++) r[x] = blankCell();
+    return r;
+  }
+
+  cell() {
+    return {
+      c: ' ',
+      f: this.attr.f,
+      b: this.attr.b,
+      bo: this.attr.bo,
+      un: this.attr.un,
+      rv: this.attr.rv,
+      dim: this.attr.dim,
+    };
+  }
+
+  /* ---------------------------------------------------------- writing */
+
+  write(str) {
+    for (let i = 0; i < str.length; i++) this.step(str[i]);
+  }
+
+  step(ch) {
+    const code = ch.codePointAt(0);
+
+    switch (this.state) {
+      case 'esc':
+        return this.escape(ch);
+      case 'csi':
+        if ((code >= 0x40 && code <= 0x7e) && !(this.params === '' && ch === '?')) {
+          this.state = 'text';
+          return this.csi(ch);
+        }
+        this.params += ch;
+        if (this.params.length > 64) this.state = 'text';
+        return;
+      case 'osc':
+        if (ch === '\x07') {
+          this.state = 'text';
+          return this.oscDone();
+        }
+        if (ch === '\x1b') {
+          this.state = 'oscEsc';
+          return;
+        }
+        this.osc += ch;
+        if (this.osc.length > 512) this.state = 'text';
+        return;
+      case 'oscEsc':
+        this.state = 'text';
+        if (ch === '\\') this.oscDone();
+        return;
+      case 'charset':
+        // ESC ( B and friends: consume the designator and move on.
+        this.state = 'text';
+        return;
+      default:
+        break;
+    }
+
+    switch (ch) {
+      case '\x1b': this.state = 'esc'; return;
+      case '\r': this.x = 0; this.wrapPending = false; return;
+      case '\n': case '\x0b': case '\x0c': this.lineFeed(); return;
+      case '\b': this.x = Math.max(0, this.x - 1); this.wrapPending = false; return;
+      case '\t': {
+        const next = Math.min(this.cols - 1, (Math.floor(this.x / 8) + 1) * 8);
+        this.x = next;
+        return;
+      }
+      case '\x07': return; // bell
+      case '\x00': return;
+      default: break;
+    }
+
+    if (code < 0x20) return; // other C0 controls: ignore
+
+    if (this.wrapPending) {
+      this.x = 0;
+      this.lineFeed();
+      this.wrapPending = false;
+    }
+
+    const cell = this.cell();
+    cell.c = ch;
+    this.buf[this.y][this.x] = cell;
+
+    if (this.x >= this.cols - 1) this.wrapPending = true;
+    else this.x++;
+  }
+
+  lineFeed() {
+    if (this.y === this.scrollBot) this.scrollUp(1);
+    else if (this.y < this.rows - 1) this.y++;
+    this.wrapPending = false;
+  }
+
+  reverseIndex() {
+    if (this.y === this.scrollTop) this.scrollDown(1);
+    else if (this.y > 0) this.y--;
+  }
+
+  scrollUp(n) {
+    for (let i = 0; i < n; i++) {
+      this.buf.splice(this.scrollTop, 1);
+      this.buf.splice(this.scrollBot, 0, this.newRow());
+    }
+  }
+
+  scrollDown(n) {
+    for (let i = 0; i < n; i++) {
+      this.buf.splice(this.scrollBot, 1);
+      this.buf.splice(this.scrollTop, 0, this.newRow());
+    }
+  }
+
+  /* --------------------------------------------------------- escapes */
+
+  escape(ch) {
+    this.state = 'text';
+    switch (ch) {
+      case '[': this.state = 'csi'; this.params = ''; return;
+      case ']': this.state = 'osc'; this.osc = ''; return;
+      case '(': case ')': case '*': case '+': this.state = 'charset'; return;
+      case '7': this.savedX = this.x; this.savedY = this.y; return;
+      case '8': this.x = this.savedX; this.y = this.savedY; return;
+      case 'M': this.reverseIndex(); return;
+      case 'D': this.lineFeed(); return;
+      case 'E': this.x = 0; this.lineFeed(); return;
+      case 'c': this.hardReset(); return;
+      case '=': case '>': return; // keypad modes
+      default: return;
+    }
+  }
+
+  oscDone() {
+    const m = /^(\d+);([\s\S]*)$/.exec(this.osc);
+    if (m && (m[1] === '0' || m[1] === '2')) this.title = m[2];
+    this.osc = '';
+  }
+
+  hardReset() {
+    this.attr = blankCell();
+    this.buf = [];
+    for (let y = 0; y < this.rows; y++) this.buf.push(this.newRow());
+    this.x = 0;
+    this.y = 0;
+    this.scrollTop = 0;
+    this.scrollBot = this.rows - 1;
+    this.altBuf = null;
+    this.cursorVisible = true;
+  }
+
+  csi(final) {
+    const raw = this.params;
+    const priv = raw.startsWith('?');
+    const body = priv ? raw.slice(1) : raw;
+    const parts = body.split(';');
+    const num = (i, dflt) => {
+      const v = parseInt(parts[i], 10);
+      return Number.isFinite(v) ? v : dflt;
+    };
+    const n = num(0, final === 'J' || final === 'K' || final === 'm' ? 0 : 1);
+
+    if (priv) return this.csiPrivate(final, body);
+
+    switch (final) {
+      case 'A': this.y = Math.max(this.scrollTop, this.y - n); this.wrapPending = false; break;
+      case 'B': this.y = Math.min(this.scrollBot, this.y + n); this.wrapPending = false; break;
+      case 'C': this.x = Math.min(this.cols - 1, this.x + n); this.wrapPending = false; break;
+      case 'D': this.x = Math.max(0, this.x - n); this.wrapPending = false; break;
+      case 'E': this.y = Math.min(this.rows - 1, this.y + n); this.x = 0; break;
+      case 'F': this.y = Math.max(0, this.y - n); this.x = 0; break;
+      case 'G': case '`': this.x = Math.min(this.cols - 1, Math.max(0, n - 1)); break;
+      case 'd': this.y = Math.min(this.rows - 1, Math.max(0, n - 1)); break;
+      case 'H': case 'f':
+        this.y = Math.min(this.rows - 1, Math.max(0, num(0, 1) - 1));
+        this.x = Math.min(this.cols - 1, Math.max(0, num(1, 1) - 1));
+        this.wrapPending = false;
+        break;
+      case 'J': this.eraseDisplay(num(0, 0)); break;
+      case 'K': this.eraseLine(num(0, 0)); break;
+      case 'L': this.insertLines(n); break;
+      case 'M': this.deleteLines(n); break;
+      case 'P': this.deleteChars(n); break;
+      case '@': this.insertChars(n); break;
+      case 'X': this.eraseChars(n); break;
+      case 'S': this.scrollUp(n); break;
+      case 'T': this.scrollDown(n); break;
+      case 'm': this.sgr(parts); break;
+      case 'r':
+        this.scrollTop = Math.max(0, num(0, 1) - 1);
+        this.scrollBot = Math.min(this.rows - 1, num(1, this.rows) - 1);
+        if (this.scrollBot <= this.scrollTop) { this.scrollTop = 0; this.scrollBot = this.rows - 1; }
+        this.x = 0;
+        this.y = this.scrollTop;
+        break;
+      case 's': this.savedX = this.x; this.savedY = this.y; break;
+      case 'u': this.x = this.savedX; this.y = this.savedY; break;
+      default: break;
+    }
+  }
+
+  csiPrivate(final, body) {
+    const set = final === 'h';
+    if (final !== 'h' && final !== 'l') return;
+    body.split(';').forEach((p) => {
+      switch (parseInt(p, 10)) {
+        case 1: this.appCursorKeys = set; break;
+        case 25: this.cursorVisible = set; break;
+        case 1047: case 1049: case 47:
+          if (set && !this.altBuf) {
+            this.altBuf = { buf: this.buf, x: this.x, y: this.y };
+            this.buf = [];
+            for (let y = 0; y < this.rows; y++) this.buf.push(this.newRow());
+            this.x = 0; this.y = 0;
+          } else if (!set && this.altBuf) {
+            this.buf = this.altBuf.buf;
+            this.x = Math.min(this.altBuf.x, this.cols - 1);
+            this.y = Math.min(this.altBuf.y, this.rows - 1);
+            this.altBuf = null;
+          }
+          break;
+        default: break;
+      }
+    });
+  }
+
+  eraseDisplay(mode) {
+    if (mode === 0) {
+      this.eraseLine(0);
+      for (let y = this.y + 1; y < this.rows; y++) this.buf[y] = this.newRow();
+    } else if (mode === 1) {
+      this.eraseLine(1);
+      for (let y = 0; y < this.y; y++) this.buf[y] = this.newRow();
+    } else {
+      for (let y = 0; y < this.rows; y++) this.buf[y] = this.newRow();
+    }
+  }
+
+  eraseLine(mode) {
+    const row = this.buf[this.y];
+    const from = mode === 0 ? this.x : 0;
+    const to = mode === 1 ? this.x : this.cols - 1;
+    for (let x = from; x <= to && x < this.cols; x++) row[x] = this.cell();
+  }
+
+  eraseChars(n) {
+    const row = this.buf[this.y];
+    for (let i = 0; i < n && this.x + i < this.cols; i++) row[this.x + i] = this.cell();
+  }
+
+  deleteChars(n) {
+    const row = this.buf[this.y];
+    row.splice(this.x, n);
+    while (row.length < this.cols) row.push(this.cell());
+  }
+
+  insertChars(n) {
+    const row = this.buf[this.y];
+    for (let i = 0; i < n; i++) row.splice(this.x, 0, this.cell());
+    row.length = this.cols;
+  }
+
+  insertLines(n) {
+    if (this.y < this.scrollTop || this.y > this.scrollBot) return;
+    for (let i = 0; i < n; i++) {
+      this.buf.splice(this.scrollBot, 1);
+      this.buf.splice(this.y, 0, this.newRow());
+    }
+  }
+
+  deleteLines(n) {
+    if (this.y < this.scrollTop || this.y > this.scrollBot) return;
+    for (let i = 0; i < n; i++) {
+      this.buf.splice(this.y, 1);
+      this.buf.splice(this.scrollBot, 0, this.newRow());
+    }
+  }
+
+  sgr(parts) {
+    if (parts.length === 1 && parts[0] === '') parts = ['0'];
+    for (let i = 0; i < parts.length; i++) {
+      const p = parseInt(parts[i], 10) || 0;
+      if (p === 0) { this.attr = blankCell(); continue; }
+      if (p === 1) { this.attr.bo = true; continue; }
+      if (p === 2) { this.attr.dim = true; continue; }
+      if (p === 4) { this.attr.un = true; continue; }
+      if (p === 7) { this.attr.rv = true; continue; }
+      if (p === 22) { this.attr.bo = false; this.attr.dim = false; continue; }
+      if (p === 24) { this.attr.un = false; continue; }
+      if (p === 27) { this.attr.rv = false; continue; }
+      if (p === 39) { this.attr.f = DEFAULT_FG; continue; }
+      if (p === 49) { this.attr.b = DEFAULT_BG; continue; }
+      if (p >= 30 && p <= 37) { this.attr.f = PALETTE[p - 30]; continue; }
+      if (p >= 90 && p <= 97) { this.attr.f = PALETTE[p - 90 + 8]; continue; }
+      if (p >= 40 && p <= 47) { this.attr.b = PALETTE[p - 40]; continue; }
+      if (p >= 100 && p <= 107) { this.attr.b = PALETTE[p - 100 + 8]; continue; }
+      if (p === 38 || p === 48) {
+        const target = p === 38 ? 'f' : 'b';
+        const mode = parseInt(parts[i + 1], 10);
+        if (mode === 5) {
+          this.attr[target] = xterm256(parseInt(parts[i + 2], 10) || 0);
+          i += 2;
+        } else if (mode === 2) {
+          const r = parseInt(parts[i + 2], 10) || 0;
+          const g = parseInt(parts[i + 3], 10) || 0;
+          const b = parseInt(parts[i + 4], 10) || 0;
+          this.attr[target] = `rgb(${r},${g},${b})`;
+          i += 4;
+        }
+      }
+    }
+  }
+
+  /* --------------------------------------------------------- painting */
+
+  render(host, focused) {
+    const frag = document.createDocumentFragment();
+
+    for (let y = 0; y < this.rows; y++) {
+      const row = this.buf[y];
+      const line = document.createElement('div');
+      let run = null;
+      let runKey = null;
+
+      for (let x = 0; x < this.cols; x++) {
+        const cell = row[x];
+        const isCursor = focused !== undefined && this.cursorVisible &&
+                         y === this.y && x === Math.min(this.x, this.cols - 1);
+        let fg = cell.rv ? (cell.b || '#0b1020') : cell.f;
+        let bg = cell.rv ? cell.f : cell.b;
+        const key = [fg, bg, cell.bo, cell.un, cell.dim, isCursor].join('|');
+
+        if (key !== runKey) {
+          run = document.createElement('span');
+          if (isCursor) run.className = focused ? 'cur' : 'cur hollow';
+          else {
+            if (fg !== DEFAULT_FG) run.style.color = fg;
+            if (bg) run.style.background = bg;
+            if (cell.bo) run.style.fontWeight = '700';
+            if (cell.un) run.style.textDecoration = 'underline';
+            if (cell.dim) run.style.opacity = '0.65';
+          }
+          line.appendChild(run);
+          runKey = key;
+          if (isCursor) runKey = null; // cursor is always its own single-cell run
+        }
+        run.textContent += cell.c;
+      }
+
+      frag.appendChild(line);
+    }
+
+    host.textContent = '';
+    host.appendChild(frag);
+  }
+}
+
+/* ===================================================================
+   Session plumbing
+   =================================================================== */
+
+const screenEl = document.getElementById('screen');
+const hostEl = document.getElementById('screen-host');
+const sink = document.getElementById('sink');
+const overlay = document.getElementById('overlay');
+
+let term = null;
+let sessionId = null;
+let reading = false;
+let alive = false;
+let focused = true;
+let dirty = false;
+let cellW = 8.4;
+let cellH = 17.5;
+
+function measure() {
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    'position:absolute;visibility:hidden;white-space:pre;' +
+    'font-family:"DejaVu Sans Mono","Liberation Mono",Menlo,Consolas,monospace;' +
+    'font-size:14px;line-height:1.25;';
+  probe.textContent = 'X'.repeat(100);
+  document.body.appendChild(probe);
+  const rect = probe.getBoundingClientRect();
+  cellW = rect.width / 100;
+  cellH = rect.height;
+  probe.remove();
+}
+
+function fitDims() {
+  const w = hostEl.clientWidth - 20;
+  const h = hostEl.clientHeight - 16;
+  return {
+    cols: Math.max(20, Math.floor(w / cellW)),
+    rows: Math.max(5, Math.floor(h / cellH)),
+  };
+}
+
+function paint() {
+  if (!term) return;
+  term.render(screenEl, focused);
+  dirty = false;
+  if (term.title) document.title = term.title;
+}
+
+function schedulePaint() {
+  if (dirty) return;
+  dirty = true;
+  requestAnimationFrame(paint);
+}
+
+function setStatus(text) {
+  document.getElementById('conn').textContent = text;
+}
+
+function showOverlay(text) {
+  document.getElementById('overlay-text').textContent = text;
+  overlay.classList.add('show');
+}
+
+async function start() {
+  overlay.classList.remove('show');
+  measure();
+  const { cols, rows } = fitDims();
+  term = new Term(cols, rows);
+  document.getElementById('dims').textContent = cols + '×' + rows;
+  paint();
+
+  setStatus('connecting…');
+  try {
+    const res = await WebOS.termOpen(cols, rows);
+    sessionId = res.id;
+    alive = true;
+    setStatus('connected');
+    pump();
+  } catch (err) {
+    setStatus('failed');
+    showOverlay(err.offline
+      ? 'The system bridge is not responding.'
+      : 'Could not start a shell: ' + err.message);
+  }
+}
+
+async function pump() {
+  if (reading || !alive || !sessionId) return;
+  reading = true;
+  try {
+    const res = await WebOS.termRead(sessionId);
+    if (res.data) {
+      term.write(res.data);
+      schedulePaint();
+    }
+    if (res.exited) {
+      alive = false;
+      setStatus('session ended');
+      showOverlay('The shell exited' + (res.code != null ? ' (status ' + res.code + ')' : '') + '.');
+      return;
+    }
+  } catch (err) {
+    alive = false;
+    setStatus('disconnected');
+    showOverlay(err.offline
+      ? 'Lost contact with the system bridge.'
+      : 'Session error: ' + err.message);
+    return;
+  } finally {
+    reading = false;
+  }
+  // The bridge long-polls, so this is a continuation rather than a busy loop.
+  pump();
+}
+
+async function send(data) {
+  if (!alive || !sessionId) return;
+  try {
+    await WebOS.termWrite(sessionId, data);
+  } catch (err) {
+    setStatus('write failed');
+  }
+}
+
+/* ------------------------------------------------------------- input */
+
+const CSI = '\x1b[';
+
+function keyToBytes(e) {
+  const k = e.key;
+
+  if (e.ctrlKey && !e.altKey && k.length === 1) {
+    const c = k.toLowerCase();
+    if (c >= 'a' && c <= 'z') return String.fromCharCode(c.charCodeAt(0) - 96);
+    if (c === ' ' || c === '@') return '\x00';
+    if (c === '[') return '\x1b';
+    if (c === '\\') return '\x1c';
+    if (c === ']') return '\x1d';
+    if (c === '^') return '\x1e';
+    if (c === '_') return '\x1f';
+  }
+
+  const arrow = { ArrowUp: 'A', ArrowDown: 'B', ArrowRight: 'C', ArrowLeft: 'D' }[k];
+  if (arrow) return (term && term.appCursorKeys ? '\x1bO' : CSI) + arrow;
+
+  switch (k) {
+    case 'Enter': return '\r';
+    case 'Backspace': return '\x7f';
+    case 'Tab': return '\t';
+    case 'Escape': return '\x1b';
+    case 'Home': return CSI + 'H';
+    case 'End': return CSI + 'F';
+    case 'PageUp': return CSI + '5~';
+    case 'PageDown': return CSI + '6~';
+    case 'Insert': return CSI + '2~';
+    case 'Delete': return CSI + '3~';
+    case 'F1': return '\x1bOP';
+    case 'F2': return '\x1bOQ';
+    case 'F3': return '\x1bOR';
+    case 'F4': return '\x1bOS';
+    case 'F5': return CSI + '15~';
+    case 'F6': return CSI + '17~';
+    case 'F7': return CSI + '18~';
+    case 'F8': return CSI + '19~';
+    case 'F9': return CSI + '20~';
+    case 'F10': return CSI + '21~';
+    case 'F11': return CSI + '23~';
+    case 'F12': return CSI + '24~';
+    default: break;
+  }
+
+  if (e.altKey && k.length === 1) return '\x1b' + k;
+  if (k.length === 1 && !e.ctrlKey && !e.metaKey) return k;
+  return null;
+}
+
+document.addEventListener('keydown', (e) => {
+  // Let the shell keep its browser-level shortcuts.
+  if (e.ctrlKey && !e.shiftKey && ['t', 'w', 'l'].includes(e.key)) return;
+  if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.ctrlKey) return;
+
+  // Ctrl+Shift+C / V are copy-paste in a terminal, not shell commands.
+  if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+    document.execCommand('copy');
+    e.preventDefault();
+    return;
+  }
+  if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+    e.preventDefault();
+    navigator.clipboard.readText().then((t) => t && send(t)).catch(() => {});
+    return;
+  }
+
+  const bytes = keyToBytes(e);
+  if (bytes === null) return;
+  e.preventDefault();
+  e.stopPropagation();
+  send(bytes);
+});
+
+document.addEventListener('paste', (e) => {
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  if (text) {
+    e.preventDefault();
+    send(text);
+  }
+});
+
+hostEl.addEventListener('mousedown', () => {
+  // Do not steal focus mid-selection.
+  setTimeout(() => {
+    if (window.getSelection().isCollapsed) sink.focus({ preventScroll: true });
+  }, 0);
+});
+
+window.addEventListener('focus', () => { focused = true; schedulePaint(); });
+window.addEventListener('blur', () => { focused = false; schedulePaint(); });
+
+/* ---------------------------------------------------------- controls */
+
+document.getElementById('btn-ctrlc').addEventListener('click', () => { send('\x03'); sink.focus(); });
+document.getElementById('btn-clear').addEventListener('click', () => { send('\x0c'); sink.focus(); });
+document.getElementById('btn-restart').addEventListener('click', async () => {
+  if (sessionId) { try { await WebOS.termClose(sessionId); } catch (err) {} }
+  alive = false;
+  sessionId = null;
+  start();
+});
+document.getElementById('overlay-btn').addEventListener('click', () => {
+  sessionId = null;
+  start();
+});
+
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!term) return;
+    const { cols, rows } = fitDims();
+    if (cols === term.cols && rows === term.rows) return;
+    term.resize(cols, rows);
+    document.getElementById('dims').textContent = cols + '×' + rows;
+    schedulePaint();
+    if (alive && sessionId) WebOS.termResize(sessionId, cols, rows).catch(() => {});
+  }, 150);
+});
+
+window.addEventListener('pagehide', () => {
+  if (sessionId) navigator.sendBeacon &&
+    WebOS.termClose(sessionId).catch(() => {});
+});
+
+start();
+sink.focus({ preventScroll: true });
+</script>
+</body>
+</html>
