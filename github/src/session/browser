@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# Run Firefox for the whole session.
+#
+#   - Closed on purpose (menu > Quit, Ctrl+Q): show the home screen, which has
+#     an "Open the browser" button. Tabs come back when it opens again.
+#   - "Restart the browser" in the taskbar: start again straight away.
+#   - Crashed: start again, backing off if it keeps crashing.
+
+set -u
+
+LIB=/usr/lib/onlybrowseros
+RUNTIME="${XDG_RUNTIME_DIR:-/tmp/onlybrowseros-$(id -u)}/onlybrowseros"
+RESTART_FLAG="$RUNTIME/restart-browser"
+# "Open Settings" in the taskbar while the home screen shows: start with it.
+SETTINGS_FLAG="$RUNTIME/open-settings"
+SETTINGS_URL="moz-extension://7f3c2a10-4b6e-4d1a-9c2f-0b5e8d7a6c31/settings.html"
+mkdir -p "$RUNTIME"
+
+quick_failures=0
+
+clear_locks() {
+  local dir
+  for dir in "$HOME"/.mozilla/firefox*/*/; do
+    rm -f "$dir/lock" "$dir/.parentlock" 2>/dev/null || true
+  done
+}
+
+set_aside_session() {
+  # A page that crashes Firefox as soon as it is restored would otherwise
+  # crash it again on every start.
+  local dir
+  for dir in "$HOME"/.mozilla/firefox*/*/; do
+    [[ -f "$dir/sessionstore.jsonlz4" ]] && mv -f "$dir/sessionstore.jsonlz4" "$dir/sessionstore.crashed.jsonlz4"
+    rm -rf "$dir/sessionstore-backups" 2>/dev/null || true
+  done
+}
+
+while true; do
+  rm -f "$RESTART_FLAG"
+  started=$(date +%s)
+  echo "$(date -Is) starting firefox"
+  if [[ -e "$SETTINGS_FLAG" ]]; then
+    rm -f "$SETTINGS_FLAG"
+    firefox-esr "$SETTINGS_URL"
+  else
+    firefox-esr
+  fi
+  code=$?
+  ran=$(( $(date +%s) - started ))
+  echo "$(date -Is) firefox exited with status $code after ${ran}s"
+
+  if [[ -e "$RESTART_FLAG" ]]; then
+    echo "restart asked for from the taskbar"
+    quick_failures=0
+    sleep 1
+    continue
+  fi
+
+  # 0: closed from its menu or Ctrl+Q. 143: asked to stop with SIGTERM
+  # (pkill, a closing session), which is also not a crash.
+  if (( code == 0 || code == 143 )); then
+    quick_failures=0
+    echo "closed by the user; showing the home screen"
+    python3 "$LIB/home/home.py" || sleep 2
+    continue
+  fi
+
+  if (( ran < 20 )); then
+    quick_failures=$((quick_failures + 1))
+  else
+    quick_failures=0
+  fi
+
+  case $quick_failures in
+    0|1) sleep 1 ;;
+    2|3) clear_locks; sleep 3 ;;
+    4)   echo "firefox keeps failing; setting the last session aside"
+         set_aside_session; clear_locks; sleep 5 ;;
+    *)   sleep 20 ;;
+  esac
+done

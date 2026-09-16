@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "WebOS Frame Bridge",
+  "version": "1.0.0",
+  "description": "Lets the WebOS shell embed external sites as tabs, and relays page titles, favicons, popups and keyboard shortcuts back to the shell.",
+  "minimum_chrome_version": "121",
+
+  "permissions": [
+    "declarativeNetRequestWithHostAccess",
+    "tabs"
+  ],
+  "host_permissions": ["<all_urls>"],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start",
+      "js": ["content.js"]
+    }
+  ],
+
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "webos_frame_rules",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  }
+}

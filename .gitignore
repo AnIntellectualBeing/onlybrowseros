@@ -1,0 +1,12 @@
+# Build output and test machines
+github/build/work/
+github/build/out/
+github/build/test/
+github/build/logs/
+# A separate clone of the updates repository (release.sh)
+github/build/updates-site/
+__pycache__/
+*.pyc
+# github/build/keys/ holds only the PUBLIC signing key and its fingerprint;
+# the private key stays in your gpg keyring and in your offline backups.
+*.asc

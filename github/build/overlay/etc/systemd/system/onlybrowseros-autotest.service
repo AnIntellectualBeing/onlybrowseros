@@ -1,0 +1,14 @@
+[Unit]
+Description=OnlyBrowserOS automated test (test virtual machines only)
+Documentation=file:///usr/lib/onlybrowseros/autotest
+# Never runs on a normal boot: only build/test-iso.sh passes these.
+ConditionKernelCommandLine=|obos.autotest=install
+ConditionKernelCommandLine=|obos.autotest=report
+After=systemd-user-sessions.service onlybrowseros-tune.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/onlybrowseros/autotest
+
+[Install]
+WantedBy=multi-user.target

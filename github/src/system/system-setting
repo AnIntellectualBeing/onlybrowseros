@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""
+Change a system-wide setting for the OnlyBrowserOS settings page.
+
+    system-setting timezone Europe/Paris
+    system-setting keyboard fr
+
+settings-host runs this as root through sudo (see /etc/sudoers.d/onlybrowseros),
+so it accepts nothing but those two forms, with checked values.
+"""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/usr/lib/onlybrowseros/shared")
+from keyboards import KEYBOARDS  # noqa: E402
+
+ZONEINFO = Path("/usr/share/zoneinfo")
+ZONE_RE = re.compile(r"(Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)"
+                     r"/[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)?")
+
+
+def set_timezone(zone):
+    if zone != "UTC" and not ZONE_RE.fullmatch(zone):
+        return "unknown time zone"
+    target = ZONEINFO / zone
+    if not target.is_file():
+        return "unknown time zone"
+    tmp = Path("/etc/.localtime.onlybrowseros")
+    if tmp.exists() or tmp.is_symlink():
+        tmp.unlink()
+    tmp.symlink_to(target)
+    os.replace(tmp, "/etc/localtime")
+    Path("/etc/timezone").write_text(zone + "\n")
+    return None
+
+
+def set_keyboard(code):
+    if code not in dict(KEYBOARDS):
+        return "unknown keyboard layout"
+    Path("/etc/default/keyboard").write_text(
+        'XKBMODEL="pc105"\n'
+        f'XKBLAYOUT="{code}"\n'
+        'XKBVARIANT=""\n'
+        'XKBOPTIONS=""\n'
+        'BACKSPACE="guess"\n'
+    )
+    return None
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ("timezone", "keyboard"):
+        print("usage: system-setting timezone ZONE | keyboard LAYOUT", file=sys.stderr)
+        return 2
+    action = set_timezone if sys.argv[1] == "timezone" else set_keyboard
+    error = action(sys.argv[2])
+    if error:
+        print(error, file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

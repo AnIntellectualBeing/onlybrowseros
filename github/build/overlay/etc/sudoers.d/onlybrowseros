@@ -1,0 +1,8 @@
+# OnlyBrowserOS: what the taskbar may do as root without a password.
+#
+# Granted to the obos group rather than a username, because the installer
+# renames the account and group membership survives that. Both helpers check
+# their arguments: set-tab-limit takes only "auto" or 1 to 20; system-setting
+# only a known time zone or keyboard layout.
+
+%obos ALL=(root) NOPASSWD: /usr/lib/onlybrowseros/set-tab-limit, /usr/lib/onlybrowseros/system-setting

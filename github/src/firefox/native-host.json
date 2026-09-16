@@ -1,0 +1,7 @@
+{
+  "name": "onlybrowseros.settings",
+  "description": "OnlyBrowserOS settings helper",
+  "path": "/usr/lib/onlybrowseros/settings-host",
+  "type": "stdio",
+  "allowed_extensions": ["tablimit@onlybrowseros"]
+}

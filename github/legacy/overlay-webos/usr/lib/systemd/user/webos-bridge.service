@@ -1,0 +1,30 @@
+[Unit]
+Description=WebOS system bridge
+Documentation=file:///usr/share/webos/daemon/system_bridge.py
+# A user service rather than a system one: it needs the session's
+# XDG_RUNTIME_DIR to reach PipeWire for volume control, and it must run as the
+# same unprivileged user whose permissions bound its file and process access.
+After=graphical-session-pre.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/share/webos/daemon/system_bridge.py
+Restart=always
+RestartSec=2
+# The shell is unusable without the bridge, so never give up restarting it.
+StartLimitIntervalSec=0
+
+# It binds loopback, runs a shell and writes the user's files, so most of the
+# usual hardening would break it. These are the ones that do not.
+NoNewPrivileges=no
+PrivateTmp=no
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target

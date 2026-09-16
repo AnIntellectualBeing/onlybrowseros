@@ -1,0 +1,34 @@
+// WebOS: let the desktop session manage its own machine without prompting for
+// a password there is no keyboard focus to type into.
+//
+// Everything here is limited to a session that is both local and active, so a
+// remote or background process gains nothing.
+
+polkit.addRule(function (action, subject) {
+    if (!subject.local || !subject.active) {
+        return polkit.Result.NOT_HANDLED;
+    }
+
+    // Wi-Fi: scan, connect, forget.
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 &&
+        subject.isInGroup("netdev")) {
+        return polkit.Result.YES;
+    }
+
+    // Power. logind already allows this for an active seat on most systems,
+    // but the rule makes it explicit rather than distro-dependent.
+    if (action.id === "org.freedesktop.login1.power-off" ||
+        action.id === "org.freedesktop.login1.reboot" ||
+        action.id === "org.freedesktop.login1.power-off-multiple-sessions" ||
+        action.id === "org.freedesktop.login1.reboot-multiple-sessions") {
+        return polkit.Result.YES;
+    }
+
+    // Mounting removable media from the file manager.
+    if (action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") === 0 &&
+        subject.isInGroup("plugdev")) {
+        return polkit.Result.YES;
+    }
+
+    return polkit.Result.NOT_HANDLED;
+});

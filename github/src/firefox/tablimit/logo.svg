@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- The OnlyBrowserOS mark. Keep in step with draw_logo() in src/shared/theme.py. -->
+  <defs><linearGradient id="lg" gradientUnits="userSpaceOnUse" x1="8" y1="4" x2="40" y2="44"><stop offset="0" stop-color="#4da3ff"/><stop offset="1" stop-color="#1a5ae6"/></linearGradient></defs>
+  <circle cx="24" cy="24" r="24" fill="url(#lg)"/>
+  <path transform="translate(24 24) rotate(-24)" d="M-21 0A21 7.14 0 0 1 21 0" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round"/>
+  <circle cx="24" cy="24" r="14.2" fill="url(#lg)"/>
+  <g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round">
+    <circle cx="24" cy="24" r="12.5"/><ellipse cx="24" cy="24" rx="5.5" ry="12.5"/><path d="M11.5 24h25"/>
+  </g>
+  <path transform="translate(24 24) rotate(-24)" d="M21 0A21 7.14 0 0 1-21 0" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

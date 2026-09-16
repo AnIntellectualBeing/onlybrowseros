@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebOS</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <div id="os-container">
+    <!-- Top System Bar -->
+    <header id="system-bar">
+      <div class="os-brand">
+        <div class="os-brand-icon">🌐</div>
+        <span>WebOS</span>
+      </div>
+
+      <div class="system-tray">
+        <div class="tray-item" id="tray-apps" title="Applications">
+          <span>▦</span>
+          <span>Apps</span>
+        </div>
+        <div class="tray-item" id="tray-wifi" title="Network">
+          <span id="wifi-icon">📶</span>
+          <span id="wifi-status-text">Network</span>
+        </div>
+        <div class="tray-item" id="tray-volume" title="Audio &amp; Display">
+          <span id="volume-icon">🔊</span>
+          <span id="volume-status-text">—</span>
+        </div>
+        <div class="tray-item" id="tray-battery" title="Battery">
+          <span id="battery-icon">🔋</span>
+          <span id="battery-status-text">—</span>
+        </div>
+        <div class="tray-item" id="tray-clock">
+          <span id="system-time">--:--</span>
+        </div>
+        <div class="tray-item" id="tray-power" title="Power" style="color: #ef4444;">
+          <span>⏻</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Browser Chrome Header -->
+    <nav id="browser-chrome">
+      <div class="nav-buttons">
+        <button class="nav-btn" id="btn-back" title="Back (Alt+Left)">◄</button>
+        <button class="nav-btn" id="btn-forward" title="Forward (Alt+Right)">►</button>
+        <button class="nav-btn" id="btn-reload" title="Reload (Ctrl+R)">↻</button>
+        <button class="nav-btn" id="btn-home" title="Home">🏠</button>
+      </div>
+
+      <div id="tabs-container"></div>
+
+      <button class="new-tab-btn" id="btn-new-tab" title="New Tab (Ctrl+T)">+</button>
+
+      <div id="address-bar-container">
+        <span class="lock-icon" id="lock-icon">🔒</span>
+        <input type="text" id="address-input" placeholder="Search or enter address" spellcheck="false" autocomplete="off">
+      </div>
+    </nav>
+
+    <!-- Viewport Container for Tab Iframes -->
+    <main id="viewport-container"></main>
+  </div>
+
+  <!-- Applications Drawer -->
+  <div class="drawer-overlay" id="apps-drawer">
+    <div class="drawer-header">
+      <span>Applications</span>
+      <span class="drawer-close" data-close>✖</span>
+    </div>
+    <div class="app-grid">
+      <div class="app-launch" data-app="/newtab.html"><span class="app-launch-icon">🏠</span><span>Dashboard</span></div>
+      <div class="app-launch" data-app="/apps/task_manager.html"><span class="app-launch-icon">📊</span><span>Monitor</span></div>
+      <div class="app-launch" data-app="/apps/web_terminal.html"><span class="app-launch-icon">💻</span><span>Terminal</span></div>
+      <div class="app-launch" data-app="/apps/file_explorer.html"><span class="app-launch-icon">📁</span><span>Files</span></div>
+      <div class="app-launch" data-app="/apps/text_editor.html"><span class="app-launch-icon">📝</span><span>Editor</span></div>
+      <div class="app-launch" data-app="/apps/settings.html"><span class="app-launch-icon">⚙️</span><span>Settings</span></div>
+      <div class="app-launch" data-app="/apps/installer.html"><span class="app-launch-icon">💾</span><span>Install</span></div>
+    </div>
+  </div>
+
+  <!-- Wi-Fi Drawer -->
+  <div class="drawer-overlay" id="wifi-drawer">
+    <div class="drawer-header">
+      <span>Wi-Fi Networks</span>
+      <span class="drawer-close" data-close>✖</span>
+    </div>
+    <div id="wifi-current" class="wifi-meta"></div>
+    <div class="wifi-list" id="wifi-network-list">
+      <div class="wifi-item">Scanning networks…</div>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn-primary" style="flex:1;" id="btn-rescan-wifi">Rescan</button>
+      <button class="btn-ghost" style="flex:1;" id="btn-disconnect-wifi">Disconnect</button>
+    </div>
+  </div>
+
+  <!-- Volume & Brightness Drawer -->
+  <div class="drawer-overlay" id="volume-drawer">
+    <div class="drawer-header">
+      <span>Audio &amp; Display</span>
+      <span class="drawer-close" data-close>✖</span>
+    </div>
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Volume</span>
+        <span id="volume-val">—</span>
+      </div>
+      <input type="range" class="os-slider" id="slider-volume" min="0" max="100" value="50">
+    </div>
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Brightness</span>
+        <span id="brightness-val">—</span>
+      </div>
+      <input type="range" class="os-slider" id="slider-brightness" min="5" max="100" value="80">
+      <div class="wifi-meta" id="brightness-note"></div>
+    </div>
+  </div>
+
+  <!-- Power Drawer -->
+  <div class="drawer-overlay" id="power-drawer">
+    <div class="drawer-header">
+      <span>Power</span>
+      <span class="drawer-close" data-close>✖</span>
+    </div>
+    <p class="wifi-meta" id="power-session"></p>
+    <div style="display: flex; gap: 10px;">
+      <button class="btn-danger" style="flex: 1;" id="btn-power-shutdown">Shut Down</button>
+      <button class="btn-primary" style="flex: 1;" id="btn-power-reboot">Restart</button>
+    </div>
+  </div>
+
+  <!-- Modal (used instead of window.prompt/confirm, which look broken in kiosk) -->
+  <div id="modal-backdrop">
+    <div class="modal-box">
+      <div class="modal-title" id="modal-title"></div>
+      <div class="modal-body" id="modal-body"></div>
+      <input type="password" class="modal-input" id="modal-input">
+      <div class="modal-actions">
+        <button class="btn-ghost" id="modal-cancel">Cancel</button>
+        <button class="btn-primary" id="modal-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-stack"></div>
+
+  <script src="/webos-api.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

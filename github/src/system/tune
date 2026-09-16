@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""
+Fit Firefox to this computer. Runs as root at every boot, before login.
+
+Reads how much memory the machine has and the tab limit chosen in
+/etc/onlybrowseros/tabs.conf, then writes:
+
+  /usr/lib/firefox-esr/distribution/policies.json     tab-limit extension, its limit, privacy defaults
+  /etc/firefox-esr/onlybrowseros.js                   memory settings for this much RAM
+
+The preferences go in /etc/firefox-esr, which Debian's Firefox reads after its
+built-in defaults. In /usr/lib/firefox-esr/defaults/pref they would be read
+first and overridden by Firefox's own "xpinstall.signatures.required = true",
+so the unsigned tab-limit extension would be refused.
+  /run/onlybrowseros/state.json                       what the taskbar shows
+
+Doing this at every boot rather than once at install time means a laptop that
+gets more RAM picks up the better settings on its next start.
+"""
+
+import json
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+FIREFOX = Path("/usr/lib/firefox-esr")
+PREFS = Path("/etc/firefox-esr/onlybrowseros.js")
+CONF = Path("/etc/onlybrowseros/tabs.conf")
+RUN = Path("/run/onlybrowseros")
+EXTENSION_ID = "tablimit@onlybrowseros"
+EXTENSION_URL = "file:///usr/lib/onlybrowseros/tablimit.xpi"
+# A fixed internal address for the extension, so the taskbar can open its
+# settings page (SETTINGS_URL in src/panel/system.py and src/session/browser).
+EXTENSION_UUID = "7f3c2a10-4b6e-4d1a-9c2f-0b5e8d7a6c31"
+START_PAGE = "file:///usr/share/onlybrowseros/start/index.html"
+MAX_LIMIT = 20
+
+
+def memory_mb():
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 2048
+
+
+# MemTotal reads below the RAM on the sticker (firmware and integrated graphics
+# take their share; a 2 GB laptop reports about 1.8 GB), so each threshold sits
+# between two common sizes.
+def recommended_tabs(mb):
+    if mb < 1500:
+        return 1
+    if mb < 3000:
+        return 2
+    if mb < 6500:
+        return 4
+    return 8
+
+
+def tier(mb):
+    if mb < 3000:
+        return "low"
+    if mb < 6500:
+        return "medium"
+    return "high"
+
+
+def configured_limit():
+    """The number set in tabs.conf, or None for automatic."""
+    try:
+        text = CONF.read_text()
+    except OSError:
+        return None
+    m = re.search(r'^\s*TAB_LIMIT\s*=\s*"?([A-Za-z0-9]+)"?\s*$', text, re.M)
+    if not m or m.group(1).lower() == "auto":
+        return None
+    if not re.fullmatch(r"[0-9]{1,2}", m.group(1)):
+        return None
+    n = int(m.group(1))
+    return n if 1 <= n <= MAX_LIMIT else None
+
+
+COMMON_PREFS = {
+    # The tab-limit extension is ours and unsigned; ESR honours this switch.
+    "xpinstall.signatures.required": False,
+    "extensions.webextensions.uuids": json.dumps({EXTENSION_ID: EXTENSION_UUID}),
+
+    # One maximised window with the taskbar below it: no title bar buttons to
+    # minimise the browser somewhere it cannot be found again.
+    "browser.tabs.inTitlebar": 0,
+    "browser.shell.checkDefaultBrowser": False,
+    "browser.aboutwelcome.enabled": False,
+    "browser.startup.homepage_override.mstone": "ignore",
+    "browser.tabs.warnOnClose": False,
+    "browser.warnOnQuit": False,
+    "browser.warnOnQuitShortcut": False,
+    # The browser is the whole computer: closing the last tab leaves the start
+    # page instead of closing the browser, and Ctrl+Q does not quit.
+    "browser.tabs.closeWindowWithLastTab": False,
+    "browser.quitShortcut.disabled": True,
+    "datareporting.policy.dataSubmissionPolicyBypassNotification": True,
+    "toolkit.telemetry.reportingpolicy.firstRun": False,
+
+    # There is no notification daemon; Firefox draws its own.
+    "alerts.useSystemBackend": False,
+
+    # Netflix, Spotify, Prime Video: Firefox downloads Widevine on first use.
+    "media.eme.enabled": True,
+    "media.gmp-widevinecdm.visible": True,
+    "media.gmp-widevinecdm.enabled": True,
+
+    # Use the GPU for video where the driver allows it.
+    "media.hardware-video-decoding.enabled": True,
+    "media.ffmpeg.vaapi.enabled": True,
+
+    # Old laptops have slow disks: save the session less often.
+    "browser.sessionstore.interval": 60000,
+    "browser.download.useDownloadDir": True,
+    "browser.tabs.unloadOnLowMemory": True,
+
+    # New tabs and the home button open the OnlyBrowserOS start page, a small
+    # local file (set in /usr/lib/firefox-esr/onlybrowseros.cfg). Firefox's own
+    # new-tab page runs in a process of its own (~100 MB) and is kept
+    # preloaded in the background; neither is wanted.
+    "browser.newtabpage.enabled": False,
+    "browser.newtab.preload": False,
+    "browser.startup.homepage": START_PAGE,
+
+    # Nothing that runs in the background for someone else's benefit.
+    "extensions.pocket.enabled": False,
+    "browser.newtabpage.activity-stream.showSponsored": False,
+    "browser.newtabpage.activity-stream.showSponsoredTopSites": False,
+    "browser.urlbar.suggest.quicksuggest.sponsored": False,
+    "app.normandy.enabled": False,
+    "browser.ml.enable": False,
+    "browser.ml.chat.enabled": False,
+}
+
+TIER_PREFS = {
+    # 1-2 GB. Fewer content processes and no per-site isolation: each isolated
+    # site costs a process of its own, which is the difference between two
+    # tabs fitting and the machine swapping.
+    "low": {
+        "fission.autostart": False,
+        "dom.ipc.processCount": 2,
+        "dom.ipc.processPrelaunch.enabled": False,
+        "browser.sessionhistory.max_total_viewers": 0,
+        "browser.cache.memory.capacity": 32768,
+        "image.mem.surfacecache.max_size_kb": 131072,
+        "network.prefetch-next": False,
+        "network.dns.disablePrefetch": True,
+        "network.predictor.enabled": False,
+        "media.av1.enabled": False,
+        "media.memory_cache_max_size": 16384,
+        "browser.sessionhistory.max_entries": 20,
+        "browser.tabs.min_inactive_duration_before_unload": 300000,
+        # Unload background tabs while 20% of memory is still free, well before
+        # earlyoom has to close anything.
+        "browser.low_commit_space_threshold_percent": 20,
+        # Networking and extensions inside the main process instead of two
+        # more processes.
+        "network.process.enabled": False,
+        "extensions.webextensions.remote": False,
+    },
+    # 3-6 GB.
+    "medium": {
+        "dom.ipc.processCount": 4,
+        "browser.sessionhistory.max_total_viewers": 2,
+        "network.predictor.enabled": False,
+        "browser.low_commit_space_threshold_percent": 12,
+    },
+    "high": {},
+}
+
+
+def policies(limit, machine_tier):
+    return {
+        "policies": {
+            "DisableTelemetry": True,
+            "DisableFirefoxStudies": True,
+            "DisablePocket": True,
+            "DisableAppUpdate": True,
+            "DisableFeedbackCommands": True,
+            "DisableProfileImport": True,
+            "DisableSetDesktopBackground": True,
+            "DontCheckDefaultBrowser": True,
+            "OverrideFirstRunPage": "",
+            "OverridePostUpdatePage": "",
+            "BlockAboutConfig": True,
+            "BlockAboutProfiles": True,
+            "BlockAboutAddons": True,
+            "BlockAboutSupport": True,
+            # One browser window and nothing to install: no private windows
+            # (they open a second window), no developer tools, and no add-ons
+            # except OnlyBrowserOS's own (ExtensionSettings below).
+            "DisablePrivateBrowsing": True,
+            "DisableDeveloperTools": True,
+            "EncryptedMediaExtensions": {"Enabled": True},
+            # Tabs from last time come back; with none, the start page opens.
+            "Homepage": {"URL": START_PAGE, "StartPage": "previous-session"},
+            "ShowHomeButton": True,
+            "NoDefaultBookmarks": True,
+            # An empty bookmarks bar saying "place your bookmarks here" only
+            # takes height away from small laptop screens.
+            "DisplayBookmarksToolbar": "never",
+            # Files: downloads go straight to Downloads without a folder
+            # question, and the browser opens no local file except the start
+            # page, downloads and USB sticks. There is no file system to find
+            # one's way around.
+            "DownloadDirectory": "${home}/Downloads",
+            "PromptForDownloadLocation": False,
+            "WebsiteFilter": {
+                "Block": ["file:///*"],
+                "Exceptions": [
+                    "file:///usr/share/onlybrowseros/*",
+                    "file:///usr/lib/onlybrowseros/*",
+                    "file:///home/*/Downloads/*",
+                    "file:///media/*",
+                ],
+            },
+            "UserMessaging": {
+                "ExtensionRecommendations": False,
+                "FeatureRecommendations": False,
+                "UrlbarInterventions": False,
+                "SkipOnboarding": True,
+                "MoreFromMozilla": False,
+            },
+            "FirefoxHome": {"SponsoredTopSites": False, "SponsoredPocket": False},
+            "ExtensionSettings": {
+                "*": {
+                    "installation_mode": "blocked",
+                    "blocked_install_message": "OnlyBrowserOS keeps the browser simple: add-ons cannot be installed.",
+                },
+                EXTENSION_ID: {
+                    "installation_mode": "force_installed",
+                    "install_url": EXTENSION_URL,
+                    "private_browsing": True,
+                },
+            },
+            "3rdparty": {
+                "Extensions": {
+                    EXTENSION_ID: {
+                        "maxTabs": limit,
+                        "preferH264": machine_tier == "low",
+                    },
+                },
+            },
+        }
+    }
+
+
+def prefs_js(values):
+    lines = ["// Written at every boot by /usr/lib/onlybrowseros/tune; edits here are overwritten.", ""]
+    for key, value in values.items():
+        lines.append(f"pref({json.dumps(key)}, {json.dumps(value)});")
+    return "\n".join(lines) + "\n"
+
+
+def write_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="." + path.name + ".")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def main():
+    mb = memory_mb()
+    machine_tier = tier(mb)
+    recommended = recommended_tabs(mb)
+    chosen = configured_limit()
+    limit = chosen or recommended
+
+    if FIREFOX.is_dir():
+        write_atomic(FIREFOX / "distribution" / "policies.json",
+                     json.dumps(policies(limit, machine_tier), indent=2) + "\n")
+        write_atomic(PREFS,
+                     prefs_js({**COMMON_PREFS, **TIER_PREFS[machine_tier]}))
+    else:
+        print(f"warning: {FIREFOX} not found, browser settings not written", file=sys.stderr)
+
+    write_atomic(RUN / "state.json", json.dumps({
+        "memory_mb": mb,
+        "tier": machine_tier,
+        "tab_limit": limit,
+        "recommended_tabs": recommended,
+        "limit_is_automatic": chosen is None,
+    }) + "\n")
+
+    print(f"{mb} MB memory, {machine_tier} tier, tab limit {limit} "
+          f"({'automatic' if chosen is None else 'chosen'})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

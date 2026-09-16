@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+#
+# Launch Chromium as the WebOS shell.
+#
+# The Frame Bridge extension is what makes the tab engine work: it strips
+# X-Frame-Options and CSP frame-ancestors from responses, so sites that
+# normally refuse to be framed will render inside a WebOS tab.
+
+set -u
+
+URL="http://127.0.0.1:9999/"
+EXTENSION="/usr/share/webos/extension"
+PROFILE="${XDG_CONFIG_HOME:-$HOME/.config}/webos-chromium"
+LOG="${XDG_STATE_HOME:-$HOME/.local/state}/webos"
+
+mkdir -p "$PROFILE" "$LOG"
+
+CHROMIUM="$(command -v chromium || command -v chromium-browser || true)"
+if [[ -z "$CHROMIUM" ]]; then
+  echo "webos: chromium is not installed" >&2
+  exec xmessage -center "WebOS cannot start: Chromium is missing from this image."
+fi
+
+# Wait for the bridge. It is a user service started in parallel with the
+# session, so on a slow disk the browser can easily win the race.
+for _ in $(seq 1 150); do
+  if (exec 3<>/dev/tcp/127.0.0.1/9999) 2>/dev/null; then
+    exec 3>&- 2>/dev/null || true
+    break
+  fi
+  sleep 0.2
+done
+
+# A profile left behind by a hard power-off makes Chromium open with a
+# "restore pages?" bubble over the shell, which a kiosk user cannot dismiss.
+if [[ -f "$PROFILE/Default/Preferences" ]]; then
+  sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/g; s/"exited_cleanly":false/"exited_cleanly":true/g' \
+    "$PROFILE/Default/Preferences" 2>/dev/null || true
+fi
+
+FLAGS=(
+  --user-data-dir="$PROFILE"
+  --load-extension="$EXTENSION"
+  --disable-extensions-except="$EXTENSION"
+  --kiosk
+  --no-first-run
+  --no-default-browser-check
+  --disable-session-crashed-bubble
+  --disable-infobars
+  --noerrdialogs
+  --disable-translate
+  --password-store=basic
+  --autoplay-policy=no-user-gesture-required
+  --check-for-update-interval=31536000
+  --disable-features=Translate,MediaRouter,OptimizationHints,DialMediaRouteProvider
+  # Small /dev/shm is normal in VMs and makes renderers crash at random.
+  --disable-dev-shm-usage
+  --window-position=0,0
+)
+
+# Restart on crash: a dead browser on a kiosk is a dead machine.
+while true; do
+  "$CHROMIUM" "${FLAGS[@]}" "$URL" >>"$LOG/chromium.log" 2>&1
+  code=$?
+  echo "$(date -Is) chromium exited with status $code" >>"$LOG/chromium.log"
+  # A clean exit means the user really did quit; anything else is a crash.
+  [[ $code -eq 0 ]] && break
+  sleep 2
+done

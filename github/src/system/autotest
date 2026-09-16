@@ -1,0 +1,324 @@
+#!/bin/bash
+#
+# Automated checks for build/test-iso.sh. Runs only inside a test virtual
+# machine: systemd starts it only when the kernel command line carries
+#
+#   obos.autotest=install   install onto the blank virtio disk /dev/vda, then power off
+#   obos.autotest=report    wait for the desktop, test the tab limit, print a health report
+#
+# Output goes to the first serial port, which the test script records.
+
+set -u
+
+serial=/dev/ttyS0
+mode="$(sed -n 's/.*obos\.autotest=\([a-z]*\).*/\1/p' /proc/cmdline)"
+
+say()  { printf 'OBOS-AUTOTEST: %s\n' "$*" >"$serial" 2>/dev/null || true; echo "$*"; }
+dump() { "$@" 2>&1 | sed 's/^/  | /' >"$serial" 2>/dev/null || true; }
+
+install_test() {
+  local disk=/dev/vda
+  # This path erases its target without asking, so it refuses anything but a
+  # blank virtio disk, which only a VM has.
+  for _ in $(seq 1 30); do [[ -b $disk ]] && break; sleep 1; done
+  if [[ ! -b $disk ]]; then
+    say "INSTALL FAILED: no $disk"
+  elif blkid -p "$disk" >/dev/null 2>&1; then
+    say "INSTALL FAILED: $disk is not blank"
+  else
+    say "INSTALL START"
+    local opts='{"disk":"/dev/vda","fullname":"Test User","username":"tester","password":"test1234","hostname":"obos-test","timezone":"UTC","keyboard":"us","autologin":true,"tab_limit":"auto","kernel_args":"console=tty0 console=ttyS0,115200 obos.autotest=report no_timer_check"}'
+    printf '%s' "$opts" | /usr/lib/onlybrowseros/install-helper install 2>&1 \
+      | tee /run/obos-install.log | sed 's/^/  | /' >"$serial"
+    if tail -n 1 /run/obos-install.log | grep -q "is installed"; then
+      say "INSTALL OK"
+    else
+      say "INSTALL FAILED"
+    fi
+  fi
+  sleep 3
+  systemctl poweroff
+}
+
+session_user() { getent group obos | cut -d: -f4 | cut -d, -f1; }
+
+# Proportional memory (shared libraries split between their users) of every
+# process whose command line matches.
+pss() {
+  local total=0 pid kb
+  for pid in $(pgrep -f "$1"); do
+    kb=$(awk '/^Pss:/ {print $2}' "/proc/$pid/smaps_rollup" 2>/dev/null)
+    total=$((total + ${kb:-0}))
+  done
+  printf '%5d MB  %s\n' "$((total / 1024))" "$2"
+}
+
+extension_status() {
+  python3 - <<'PY'
+import glob, json
+found = False
+for path in glob.glob("/home/*/.mozilla/firefox*/*/extensions.json"):
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError) as exc:
+        print(path, "unreadable:", exc)
+        continue
+    for addon in data.get("addons", []):
+        if addon.get("id") == "tablimit@onlybrowseros":
+            found = True
+            print("tablimit:", "active" if addon.get("active") else "NOT ACTIVE",
+                  "| appDisabled", addon.get("appDisabled"),
+                  "| signedState", addon.get("signedState"),
+                  "| location", addon.get("location"))
+if not found:
+    print("tablimit extension not in any profile; profiles:", glob.glob("/home/*/.mozilla/*/*"))
+PY
+}
+
+# Count the tabs Firefox has saved in its session file (mozLz4: a magic
+# header, then one LZ4 block).
+count_tabs() {
+  python3 - <<'PY'
+import glob, json, os
+def lz4_block(src):
+    out, i = bytearray(), 0
+    while i < len(src):
+        token = src[i]; i += 1
+        n = token >> 4
+        if n == 15:
+            while True:
+                b = src[i]; i += 1; n += b
+                if b != 255: break
+        out += src[i:i + n]; i += n
+        if i >= len(src): break
+        offset = src[i] | (src[i + 1] << 8); i += 2
+        n = token & 15
+        if n == 15:
+            while True:
+                b = src[i]; i += 1; n += b
+                if b != 255: break
+        start = len(out) - offset
+        for k in range(n + 4):
+            out.append(out[start + k])
+    return bytes(out)
+files = sorted(glob.glob("/home/*/.mozilla/firefox*/*/sessionstore-backups/recovery.jsonlz4"), key=os.path.getmtime)
+if not files:
+    print(-1); raise SystemExit
+raw = open(files[-1], "rb").read()
+data = json.loads(lz4_block(raw[12:]))
+for w in data.get("windows", []):
+    for t in w.get("tabs", []):
+        entries = t.get("entries") or []
+        if entries:
+            print("URL", entries[min(len(entries), t.get("index", len(entries))) - 1].get("url", ""))
+print(sum(len(w.get("tabs", [])) for w in data.get("windows", [])))
+PY
+}
+
+tab_test() {
+  local user uid limit tabs
+  user="$(session_user)"
+  uid="$(id -u "$user")"
+  limit="$(python3 -c 'import json; print(json.load(open("/run/onlybrowseros/state.json"))["tab_limit"])')"
+  say "TABTEST opening 5 new tabs with a limit of $limit"
+  for i in 1 2 3 4 5; do
+    runuser -u "$user" -- env DISPLAY=:0 HOME="/home/$user" XAUTHORITY="/home/$user/.Xauthority" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+      firefox-esr --new-tab "about:blank#tab$i" >/dev/null 2>&1 &
+    sleep 10
+  done
+  # Firefox writes its session file once a minute (browser.sessionstore.interval).
+  sleep 75
+  tabs="$(count_tabs 2>&1 | tail -n 1)"
+  if [[ "$tabs" =~ ^[0-9]+$ ]] && (( tabs >= 1 && tabs <= limit )); then
+    say "TABTEST PASS: $tabs tab(s) open, limit $limit"
+  else
+    say "TABTEST FAIL: tabs open '$tabs', limit $limit"
+  fi
+}
+
+settings_test() {
+  # The browser settings page saves through settings-host, which needs sudo:
+  # that only works if Firefox does not start its helpers with no_new_privs.
+  local user reply
+  user="$(session_user)"
+  say "SETTINGSTEST browser $(grep -h NoNewPrivs "/proc/$(pgrep -o -x firefox-esr)/status" 2>/dev/null | tr -s '\t ' ' ')"
+  reply="$(runuser -u "$user" -- env DISPLAY=:0 XAUTHORITY="/home/$user/.Xauthority" python3 - <<'PY'
+import json, struct, subprocess
+def ask(message):
+    data = json.dumps(message).encode()
+    p = subprocess.run(["/usr/lib/onlybrowseros/settings-host"], input=struct.pack("=I", len(data)) + data,
+                       capture_output=True, timeout=60)
+    if len(p.stdout) < 4:
+        return {"ok": False, "error": p.stderr.decode()[-200:]}
+    n = struct.unpack("=I", p.stdout[:4])[0]
+    return json.loads(p.stdout[4:4 + n])
+state = ask({"cmd": "get"})
+zone = state.get("timezone", "UTC")
+checks = {
+    "get": bool(state.get("ok") and state.get("timezones") and state.get("keyboards")),
+    "tabs": ask({"cmd": "set-tabs", "value": "4"}).get("tab_limit") == 4,
+    "tabs_back": bool(ask({"cmd": "set-tabs", "value": "auto"}).get("limit_is_automatic")),
+    "timezone": ask({"cmd": "set-timezone", "value": "Europe/Paris"}).get("timezone") == "Europe/Paris",
+    "timezone_back": ask({"cmd": "set-timezone", "value": zone}).get("ok") is True,
+    "keyboard": ask({"cmd": "set-keyboard", "value": "us"}).get("keyboard") == "us",
+    "files": any(f.get("name") == "report.pdf" for f in ask({"cmd": "list-files"}).get("downloads", [])),
+}
+print(json.dumps(checks))
+PY
+)"
+  if [[ "$reply" == "{"* && "$reply" != *false* ]]; then
+    say "SETTINGSTEST PASS: $reply"
+  else
+    say "SETTINGSTEST FAIL: $reply"
+  fi
+}
+
+settings_open_test() {
+  # "Open Settings" in the taskbar asks the running browser for the settings
+  # page at its fixed address; the tab limit must let that tab through.
+  local user uid out
+  user="$(session_user)"
+  uid="$(id -u "$user")"
+  runuser -u "$user" -- env DISPLAY=:0 HOME="/home/$user" XAUTHORITY="/home/$user/.Xauthority" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+    python3 -c 'import sys; sys.path.insert(0, "/usr/lib/onlybrowseros/panel"); import system; print(system.open_settings())' \
+    >/dev/null 2>&1
+  sleep 75
+  out="$(count_tabs 2>&1)"
+  if grep -q "^URL moz-extension://7f3c2a10-4b6e-4d1a-9c2f-0b5e8d7a6c31/settings.html" <<<"$out"; then
+    say "SETTINGSOPEN PASS: settings page open ($(tail -n 1 <<<"$out") tabs)"
+  else
+    say "SETTINGSOPEN FAIL: $(tr '\n' ' ' <<<"$out" | tail -c 400)"
+  fi
+}
+
+downloads_test() {
+  # Only files the browser can open may be downloaded: a PDF arrives, a ZIP is
+  # stopped. Both are served as attachments from a small local web server.
+  local user uid dir server got
+  user="$(session_user)"
+  uid="$(id -u "$user")"
+  dir="$(mktemp -d)"
+  printf '%%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%%%EOF\n' > "$dir/report.pdf"
+  head -c 4096 /dev/urandom > "$dir/setup.zip"
+  python3 - "$dir" >/dev/null 2>&1 <<'PY' &
+import functools, http.server, sys
+class Attachment(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Content-Disposition", "attachment")
+        super().end_headers()
+    def guess_type(self, path):
+        return "application/pdf" if str(path).endswith(".pdf") else "application/zip"
+http.server.ThreadingHTTPServer(("127.0.0.1", 8765), functools.partial(Attachment, directory=sys.argv[1])).serve_forever()
+PY
+  server=$!
+  sleep 3
+  for file in setup.zip report.pdf; do
+    runuser -u "$user" -- env DISPLAY=:0 HOME="/home/$user" XAUTHORITY="/home/$user/.Xauthority" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+      firefox-esr --new-tab "http://127.0.0.1:8765/$file" >/dev/null 2>&1 &
+    sleep 30
+  done
+  kill "$server" 2>/dev/null
+  got="$(ls -A "/home/$user/Downloads" 2>/dev/null | tr '\n' ' ')"
+  if [[ -f "/home/$user/Downloads/report.pdf" && "$got" != *setup.zip* ]]; then
+    say "DOWNLOADTEST PASS: kept report.pdf, stopped setup.zip (Downloads: ${got:-empty})"
+  else
+    say "DOWNLOADTEST FAIL: Downloads holds: ${got:-nothing}"
+  fi
+}
+
+print_test() {
+  # Printing waits for a print job instead of running all the time.
+  local at_rest answer
+  at_rest="$(systemctl is-active cups.service 2>/dev/null)"
+  answer="$(lpstat -r 2>&1)"
+  if [[ "$answer" == *"scheduler is running"* ]]; then
+    say "PRINTTEST PASS: printing starts on demand (at rest: ${at_rest:-unknown})"
+  else
+    say "PRINTTEST FAIL: $answer"
+  fi
+}
+
+home_test() {
+  # Closing Firefox the ordinary way (a clean exit) must bring up the home
+  # screen instead of restarting the browser behind the user's back.
+  say "HOMETEST closing the browser"
+  pkill -TERM -x firefox-esr
+  for _ in $(seq 1 45); do
+    pgrep -x obos-home >/dev/null && break
+    sleep 2
+  done
+  if pgrep -x obos-home >/dev/null; then
+    say "HOMETEST PASS: home screen shown, browser $(pgrep -x firefox-esr >/dev/null && echo still running || echo closed)"
+  else
+    say "HOMETEST FAIL: no home screen"
+  fi
+  dump bash -c 'tail -n 4 /home/*/.local/state/onlybrowseros/browser.log'
+}
+
+report() {
+  # Test VMs only: let Firefox print console errors (policies, extensions)
+  # into browser.log.
+  printf 'pref("devtools.console.stdout.chrome", true);\npref("browser.policies.loglevel", "error");\n' \
+    >> /etc/firefox-esr/onlybrowseros.js
+
+  say "REPORT WAITING FOR SESSION"
+  # Software emulation without KVM is slow; allow a long start.
+  for _ in $(seq 1 240); do
+    pgrep -x firefox-esr >/dev/null && pgrep -x obos-panel >/dev/null && break
+    sleep 5
+  done
+  pgrep -x firefox-esr >/dev/null && say "SESSION browser running" || say "SESSION browser NOT running"
+  pgrep -x obos-panel  >/dev/null && say "SESSION taskbar running" || say "SESSION taskbar NOT running"
+
+  # Let Firefox finish starting and installing the extension.
+  sleep 120
+
+  say "LIVE $(grep -qw boot=live /proc/cmdline && echo yes || echo no)"
+  # What the kernel itself found at start-up ("secureboot: Secure boot enabled")
+  # and the lockdown Debian's kernel turns on under Secure Boot.
+  local sb lockdown
+  sb="$(journalctl -k -b --no-pager -o cat 2>/dev/null | grep -m1 -oiE 'secure ?boot (enabled|disabled|could not be determined)')"
+  lockdown="$(cat /sys/kernel/security/lockdown 2>/dev/null)"
+  say "FIRMWARE $([[ -d /sys/firmware/efi ]] && echo UEFI || echo BIOS); kernel: ${sb:-no Secure Boot message}; lockdown: ${lockdown:-unknown}"
+  say "PACKAGE onlybrowseros $(dpkg-query -W -f='${Version}' onlybrowseros 2>/dev/null || echo NOT INSTALLED)"
+  dump bash -c 'cat /etc/apt/sources.list.d/onlybrowseros.list 2>/dev/null || echo "no OnlyBrowserOS update source (no signing key at build time)"'
+  dump cat /run/onlybrowseros/state.json
+  say "MEMORY at rest"
+  dump free -m
+  dump pss 'firefox-esr' 'browser (all Firefox processes)'
+  dump pss 'onlybrowseros/panel' 'taskbar'
+  dump pss 'Xorg' 'screen (Xorg)'
+  dump pss 'openbox' 'window manager'
+  dump swapon --show
+  dump bash -c 'echo "earlyoom $(systemctl is-active earlyoom): $(tr "\0" " " < /proc/$(pgrep -x earlyoom)/cmdline)"'
+  dump extension_status
+
+  downloads_test
+  tab_test
+  settings_test
+  settings_open_test
+  print_test
+
+  say "MEMORY after the tab test"
+  dump free -m
+  dump pss 'firefox-esr' 'browser (all Firefox processes)'
+  dump bash -c 'ps -eo rss,comm --sort=-rss | head -n 14'
+  dump bash -c 'systemctl --failed --no-legend --plain || true'
+  dump nmcli -t -f DEVICE,TYPE,STATE device
+  dump bash -c 'grep -aiE "polic|tablimit|extension|error|onlybrowseros.cfg" /home/*/.local/state/onlybrowseros/browser.log | grep -v "glxtest" | tail -n 25'
+  dump bash -c 'tail -n 8 /home/*/.local/state/onlybrowseros/panel.log /home/*/.local/state/onlybrowseros/session.log 2>/dev/null'
+  dump journalctl -b -p err --no-pager -n 30 -o cat
+
+  home_test
+  dump pss 'onlybrowseros/home' 'home screen'
+  say "REPORT DONE"
+}
+
+case "$mode" in
+  install) install_test ;;
+  report)  report ;;
+  *)       exit 0 ;;
+esac

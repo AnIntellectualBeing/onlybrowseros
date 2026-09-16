@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# The WebOS graphical session. Started by ~/.xinitrc once X is up.
+
+set -u
+
+LOG="${XDG_STATE_HOME:-$HOME/.local/state}/webos"
+mkdir -p "$LOG"
+exec >>"$LOG/session.log" 2>&1
+echo "=== session start $(date -Is) ==="
+
+# A kiosk must never blank or lock.
+xset s off
+xset s noblank
+xset -dpms
+
+# Sensible defaults for a machine with no desktop to configure them.
+xsetroot -solid "#0f172a" 2>/dev/null || true
+[[ -r /etc/default/keyboard ]] && . /etc/default/keyboard
+[[ -n "${XKBLAYOUT:-}" ]] && setxkbmap "$XKBLAYOUT" "${XKBVARIANT:-}" 2>/dev/null || true
+
+# Openbox handles the windows Chromium opens outside its kiosk window:
+# print dialogs, file pickers, the odd popup the extension does not catch.
+openbox --sm-disable &
+OPENBOX_PID=$!
+
+# Audio. In a live session nothing else will have started these.
+if command -v pipewire >/dev/null; then
+  pipewire &
+  pipewire-pulse &
+  wireplumber &
+fi
+
+cleanup() {
+  kill "$OPENBOX_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+exec /usr/bin/webos-chromium

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text Editor</title>
+  <style>
+    :root {
+      --bg: #0f172a; --chrome: rgba(30,41,59,0.75);
+      --border: rgba(255,255,255,0.1); --accent: #6366f1;
+      --text: #f8fafc; --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); overflow: hidden; }
+    #wrap { display: flex; flex-direction: column; height: 100%; }
+
+    #bar {
+      flex: 0 0 auto; height: 48px; background: var(--chrome);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px; padding: 0 14px;
+    }
+    .btn {
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: 6px 13px;
+      font-size: 0.82rem; cursor: pointer; white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+    .btn.accent {
+      background: linear-gradient(135deg,#6366f1,#4f46e5);
+      border-color: transparent; font-weight: 600;
+    }
+    #filename {
+      flex: 1; background: rgba(2,6,23,0.6); border: 1px solid var(--border);
+      border-radius: 9px; padding: 7px 12px; color: var(--text);
+      font-size: 0.85rem; font-family: monospace; outline: none; min-width: 0;
+    }
+    #filename:focus { border-color: var(--accent); }
+    #dirty { color: #fbbf24; font-size: 1.1rem; width: 12px; }
+
+    #editor {
+      flex: 1 1 auto; width: 100%; resize: none; border: none; outline: none;
+      background: #0b1020; color: #e2e8f0; padding: 16px 18px;
+      font-family: "DejaVu Sans Mono","Liberation Mono",Menlo,Consolas,monospace;
+      font-size: 14px; line-height: 1.55; tab-size: 4; white-space: pre;
+      overflow: auto; min-height: 0;
+    }
+
+    #status {
+      flex: 0 0 auto; height: 30px; border-top: 1px solid var(--border);
+      background: var(--chrome); display: flex; align-items: center;
+      padding: 0 14px; font-size: 0.76rem; color: var(--muted); gap: 16px;
+    }
+    #msg.err { color: #fca5a5; }
+    #msg.ok { color: #86efac; }
+  </style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="bar">
+    <span id="dirty"></span>
+    <input id="filename" spellcheck="false" placeholder="/path/to/file">
+    <button class="btn" id="btn-open">Open</button>
+    <button class="btn accent" id="btn-save">Save</button>
+    <button class="btn" id="btn-files">Browse…</button>
+  </div>
+
+  <textarea id="editor" spellcheck="false" autocomplete="off" placeholder="Type a path above and press Open, or start writing and Save to a new file."></textarea>
+
+  <div id="status">
+    <span id="pos">Ln 1, Col 1</span>
+    <span id="size"></span>
+    <span id="msg"></span>
+  </div>
+</div>
+
+<script src="/webos-api.js"></script>
+<script>
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const editor = $('editor');
+
+let loadedPath = null;
+let savedText = '';
+
+function flash(text, kind) {
+  const el = $('msg');
+  el.textContent = text;
+  el.className = kind || '';
+  setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 4000);
+}
+
+function markDirty() {
+  const dirty = editor.value !== savedText;
+  $('dirty').textContent = dirty ? '●' : '';
+  document.title = (dirty ? '• ' : '') + (loadedPath ? loadedPath.split('/').pop() : 'Text Editor');
+  return dirty;
+}
+
+function updatePos() {
+  const upto = editor.value.slice(0, editor.selectionStart);
+  const lines = upto.split('\n');
+  $('pos').textContent = 'Ln ' + lines.length + ', Col ' + (lines[lines.length - 1].length + 1);
+  $('size').textContent = editor.value.length + ' chars, ' +
+    (editor.value ? editor.value.split('\n').length : 0) + ' lines';
+}
+
+async function openPath(path) {
+  if (!path) return;
+  if (markDirty() && !confirm('Discard unsaved changes?')) return;
+  try {
+    const res = await WebOS.readFile(path);
+    if (res.binary) {
+      flash('That file is not text (' + WebOS.bytes(res.size) + ')', 'err');
+      return;
+    }
+    editor.value = res.content;
+    savedText = res.content;
+    loadedPath = res.path;
+    $('filename').value = res.path;
+    markDirty();
+    updatePos();
+    flash('Opened', 'ok');
+    if (res.readonly) flash('Opened read-only — you do not have write permission', 'err');
+  } catch (err) {
+    flash(err.offline ? 'System bridge offline' : err.message, 'err');
+  }
+}
+
+async function save() {
+  const path = $('filename').value.trim();
+  if (!path) { flash('Enter a file path first', 'err'); return; }
+  try {
+    await WebOS.writeFile(path, editor.value);
+    savedText = editor.value;
+    loadedPath = path;
+    markDirty();
+    flash('Saved to ' + path, 'ok');
+  } catch (err) {
+    flash(err.offline ? 'System bridge offline' : err.message, 'err');
+  }
+}
+
+$('btn-open').addEventListener('click', () => openPath($('filename').value.trim()));
+$('btn-save').addEventListener('click', save);
+$('btn-files').addEventListener('click', () => {
+  const dir = loadedPath ? loadedPath.split('/').slice(0, -1).join('/') : '~';
+  WebOS.navigate('/apps/file_explorer.html?path=' + encodeURIComponent(dir || '/'));
+});
+
+$('filename').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); openPath($('filename').value.trim()); }
+});
+
+editor.addEventListener('input', () => { markDirty(); updatePos(); });
+editor.addEventListener('keyup', updatePos);
+editor.addEventListener('click', updatePos);
+
+editor.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 's') { e.preventDefault(); e.stopPropagation(); save(); return; }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const s = editor.selectionStart;
+    const t = editor.selectionEnd;
+    editor.value = editor.value.slice(0, s) + '  ' + editor.value.slice(t);
+    editor.selectionStart = editor.selectionEnd = s + 2;
+    markDirty();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 's') { e.preventDefault(); save(); }
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (markDirty()) { e.preventDefault(); e.returnValue = ''; }
+});
+
+const initial = new URLSearchParams(location.search).get('path');
+if (initial) { $('filename').value = initial; openPath(initial); }
+updatePos();
+</script>
+</body>
+</html>

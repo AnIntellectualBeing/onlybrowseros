@@ -1,0 +1,4 @@
+# OnlyBrowserOS: mount USB sticks, USB drives and SD cards when plugged in.
+# Internal disks and eMMC storage are left alone.
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", ENV{ID_FS_USAGE}=="filesystem", RUN{program}+="/usr/lib/onlybrowseros/usb-mount %k"
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="mmcblk[0-9]p[0-9]*", ATTRS{type}=="SD", ENV{ID_FS_USAGE}=="filesystem", RUN{program}+="/usr/lib/onlybrowseros/usb-mount %k"

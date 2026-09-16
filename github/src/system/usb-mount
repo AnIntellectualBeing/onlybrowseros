@@ -1,0 +1,54 @@
+#!/bin/bash
+#
+# Mount a USB stick or SD card when it is plugged in, so it shows up under
+# /media in the browser's "save" and "upload" dialogs. There is no file manager,
+# so without this a USB stick would be invisible.
+#
+# Called by udev (/etc/udev/rules.d/90-onlybrowseros-usb.rules) with the kernel
+# device name. systemd-mount asks PID 1 to do the mount, because udev's own
+# mounts are private to udev; --collect unmounts it when the stick is pulled.
+
+set -u
+
+name="${1:?usage: usb-mount <kernel device name>}"
+dev="/dev/$name"
+[[ -b "$dev" ]] || exit 0
+
+# The installer is partitioning a disk; do not grab its new partitions.
+[[ -e /run/onlybrowseros/installing ]] && exit 0
+
+findmnt -rn --source "$dev" >/dev/null 2>&1 && exit 0
+
+fstype="$(blkid -o value -s TYPE "$dev" 2>/dev/null)" || exit 0
+label="$(blkid -o value -s LABEL "$dev" 2>/dev/null || true)"
+
+case "$fstype" in
+  vfat|exfat|ntfs|ntfs3|ext2|ext3|ext4|btrfs|f2fs|xfs) ;;
+  *) exit 0 ;;
+esac
+
+# The OnlyBrowserOS USB stick itself, and the tiny boot partitions on sticks.
+[[ "$label" == "ONLYBROWSEROS" ]] && exit 0
+size="$(blockdev --getsize64 "$dev" 2>/dev/null || echo 0)"
+(( size >= 64 * 1024 * 1024 )) || exit 0
+
+# Files belong to the person using the computer (the obos group's member).
+owner="$(getent group obos | cut -d: -f4 | cut -d, -f1)"
+uid="$(id -u "$owner" 2>/dev/null || echo 1000)"
+gid="$(id -g "$owner" 2>/dev/null || echo 1000)"
+
+base="${label:-$name}"
+base="${base//[^A-Za-z0-9._ -]/_}"
+target="/media/$base"
+if findmnt -rn "$target" >/dev/null 2>&1; then
+  target="/media/$base-$name"
+fi
+
+opts="nosuid,nodev,noexec"
+case "$fstype" in
+  vfat)       opts+=",uid=$uid,gid=$gid,umask=022,flush,utf8" ;;
+  exfat)      opts+=",uid=$uid,gid=$gid,umask=022" ;;
+  ntfs|ntfs3) fstype=ntfs3; opts+=",uid=$uid,gid=$gid,umask=022" ;;
+esac
+
+exec systemd-mount --no-block --collect -t "$fstype" -o "$opts" "$dev" "$target"

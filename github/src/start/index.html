@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New Tab</title>
+<link rel="icon" id="favicon" href="data:,">
+<style>
+  /* One small file, no web fonts, no images to download: it must open
+     instantly on a 1 GB laptop with no internet. The landscape is inline SVG,
+     inserted at build time by src/shared/landscape.py (the same drawing the
+     home screen uses). Colours follow src/shared/theme.py. */
+  :root {
+    --surface: #ffffff; --raised: #eef3fa; --border: #dbe3ef;
+    --text: #0f1b3d; --soft-text: #34405a; --muted: #56627a;
+    --accent: #1f6fff; --accent-hover: #3d82ff; --bad: #dc2626;
+    --shadow: 0 6px 22px rgba(15, 27, 61, .12);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font: 15px/1.5 "Noto Sans", system-ui, sans-serif; color: var(--text);
+    background: linear-gradient(#a9d2ff, #d7ebff 45%, #fde9d2 78%, #9cc6f2 78%);
+    overflow-x: hidden;
+  }
+  .landscape { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+  main {
+    position: relative; z-index: 1; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 28px 16px 12vh;
+  }
+  .mark {
+    width: 104px; height: 104px; border-radius: 50%; background: var(--surface);
+    display: grid; place-items: center; box-shadow: var(--shadow); margin-bottom: 16px;
+  }
+  .mark svg { width: 80px; height: 80px; }
+  h1 { margin: 0; font-size: clamp(38px, 6vw, 62px); line-height: 1.05; font-weight: 800; letter-spacing: -.02em; text-align: center; }
+  h1 span { color: var(--accent); }
+  .tagline { margin: 8px 0 28px; font-size: clamp(17px, 2vw, 21px); color: var(--soft-text); text-align: center; }
+
+  form.search { width: min(680px, 100%); position: relative; margin: 0 0 28px; }
+  form.search input {
+    width: 100%; height: 62px; border-radius: 999px; border: 2px solid transparent;
+    background: var(--surface); box-shadow: var(--shadow);
+    padding: 0 72px 0 58px; font: inherit; font-size: 18px; color: var(--text); outline: none;
+  }
+  form.search input:focus { border-color: var(--accent); }
+  form.search input::placeholder { color: #7d879b; }
+  .search-icon { position: absolute; left: 22px; top: 50%; width: 22px; height: 22px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+  .go {
+    position: absolute; right: 9px; top: 9px; width: 44px; height: 44px; border-radius: 50%;
+    border: 0; background: var(--accent); color: #fff; display: grid; place-items: center; cursor: pointer;
+  }
+  .go:hover, .go:focus-visible { background: var(--accent-hover); outline: none; }
+  .go svg { width: 22px; height: 22px; }
+
+  .sites { display: grid; grid-template-columns: repeat(5, 100px); gap: 16px; justify-content: center; margin: 0; padding: 0; list-style: none; }
+  @media (max-width: 640px) { .sites { grid-template-columns: repeat(3, 100px); } }
+  /* Netbook screens (1024 x 600) leave under 500 px for the page: keep every
+     website visible without scrolling. */
+  @media (max-height: 560px) {
+    main { padding-top: 12px; padding-bottom: 12px; }
+    .mark { width: 64px; height: 64px; margin-bottom: 8px; }
+    .mark svg { width: 50px; height: 50px; }
+    h1 { font-size: 36px; }
+    .tagline { margin: 2px 0 14px; font-size: 16px; }
+    form.search { margin-bottom: 16px; }
+    form.search input { height: 52px; }
+    .go { top: 5px; right: 6px; }
+    .sites { grid-template-columns: repeat(5, 88px); gap: 10px; }
+    .tile { width: 88px; height: 80px; gap: 4px; font-size: 13px; }
+    .tile svg { width: 32px; height: 32px; }
+  }
+  .sites li { position: relative; }
+  .tile {
+    width: 100px; height: 100px; border-radius: 18px; background: var(--surface); box-shadow: var(--shadow);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    text-decoration: none; color: var(--text); font: inherit; font-size: 14px;
+    border: 2px solid transparent; padding: 0; cursor: pointer; transition: transform .12s ease;
+  }
+  .tile:hover, .tile:focus-visible { transform: translateY(-3px); border-color: var(--accent); outline: none; }
+  .tile svg { width: 38px; height: 38px; flex: none; }
+  .site-icon { width: 40px; height: 40px; display: grid; place-items: center; flex: none; }
+  .site-icon img { display: none; width: 36px; height: 36px; object-fit: contain; border-radius: 8px; }
+  .site-icon.loaded img { display: block; }
+  .site-icon.loaded svg { display: none; }
+  .tile .name { max-width: 88px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .remove {
+    position: absolute; top: -8px; right: -8px; width: 26px; height: 26px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; box-shadow: var(--shadow);
+  }
+  .sites li:hover .remove, .remove:focus-visible { opacity: 1; }
+  .remove:hover { color: var(--bad); }
+
+  .settings {
+    position: fixed; top: 16px; right: 16px; z-index: 2;
+    display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+    border-radius: 999px; border: 0; background: var(--surface); box-shadow: var(--shadow);
+    font: inherit; font-weight: 600; color: var(--text); cursor: pointer;
+  }
+  .settings[hidden] { display: none; }
+  .settings:hover, .settings:focus-visible { background: var(--raised); outline: none; }
+  .settings svg { width: 18px; height: 18px; }
+
+  .notice {
+    margin: 24px 0 0; padding: 8px 18px; border-radius: 999px; background: var(--surface);
+    box-shadow: var(--shadow); color: var(--soft-text); font-size: 14px; text-align: center;
+  }
+
+  dialog {
+    border: 0; border-radius: 20px; padding: 24px; width: min(400px, calc(100vw - 32px));
+    box-shadow: 0 24px 70px rgba(15, 27, 61, .35); color: var(--text); font: inherit;
+  }
+  dialog::backdrop { background: rgba(15, 27, 61, .35); }
+  dialog h2 { margin: 0 0 4px; font-size: 21px; }
+  dialog p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+  dialog label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+  dialog input {
+    width: 100%; height: 46px; border-radius: 12px; border: 1px solid var(--border);
+    padding: 0 12px; font: inherit; font-size: 16px; color: var(--text); outline: none;
+  }
+  dialog input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(31, 111, 255, .15); }
+  .error { color: var(--bad); font-size: 13px; min-height: 20px; margin: 8px 0 0; }
+  .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .btn {
+    height: 42px; padding: 0 20px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); font: inherit; font-weight: 600; color: var(--text); cursor: pointer;
+  }
+  .btn:hover { background: var(--raised); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); }
+</style>
+</head>
+<body>
+<!-- LANDSCAPE -->
+<!-- Shown by the OnlyBrowserOS extension (tablimit/start-page.js), which opens the settings. -->
+<button class="settings" id="settings" type="button" hidden>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+  Settings
+</button>
+<main>
+  <div class="mark">
+    <svg id="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true">
+      <!-- Keep in step with draw_logo() in src/shared/theme.py. -->
+      <defs><linearGradient id="lg" gradientUnits="userSpaceOnUse" x1="8" y1="4" x2="40" y2="44"><stop offset="0" stop-color="#4da3ff"/><stop offset="1" stop-color="#1a5ae6"/></linearGradient></defs>
+      <circle cx="24" cy="24" r="24" fill="url(#lg)"/>
+      <path transform="translate(24 24) rotate(-24)" d="M-21 0A21 7.14 0 0 1 21 0" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="24" cy="24" r="14.2" fill="url(#lg)"/>
+      <g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round">
+        <circle cx="24" cy="24" r="12.5"/><ellipse cx="24" cy="24" rx="5.5" ry="12.5"/><path d="M11.5 24h25"/>
+      </g>
+      <path transform="translate(24 24) rotate(-24)" d="M21 0A21 7.14 0 0 1-21 0" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <h1>OnlyBrowser<span>OS</span></h1>
+  <p class="tagline">The web. Made simple.</p>
+
+  <form class="search" action="https://www.google.com/search" method="get" role="search">
+    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input type="search" name="q" id="q" placeholder="Search or type a website address" autocomplete="off" aria-label="Search or type a website address">
+    <button class="go" type="submit" aria-label="Go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </form>
+
+  <ul class="sites" id="sites" aria-label="Your websites"></ul>
+
+  <p class="notice" id="offline" hidden>You are not connected to the internet. Click the Wi-Fi symbol at the bottom right of the screen to connect.</p>
+</main>
+
+<dialog id="add-dialog">
+  <form method="dialog" id="add-form">
+    <h2>Add a website</h2>
+    <p>It will appear on this page every time you open a new tab.</p>
+    <label for="add-url">Website address</label>
+    <input id="add-url" placeholder="for example: bbc.com" autocomplete="off" required>
+    <label for="add-name">Name <span style="font-weight:400">(optional)</span></label>
+    <input id="add-name" placeholder="for example: BBC" autocomplete="off" maxlength="30">
+    <p class="error" id="add-error" role="alert"></p>
+    <div class="buttons">
+      <button class="btn" type="button" id="add-cancel">Cancel</button>
+      <button class="btn primary" type="submit">Add</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+// Nothing here talks to the internet; the website list is kept in this
+// browser's local storage.
+
+const ICONS = {
+  add: '<circle cx="24" cy="24" r="20" fill="#eef3fa"/><path d="M24 15v18M15 24h18" stroke="#1f6fff" stroke-width="3.4" stroke-linecap="round"/>',
+  downloads: '<circle cx="24" cy="24" r="20" fill="#e6efff"/><path d="M24 13v16M17 22.5l7 7 7-7M15 34h18" fill="none" stroke="#1f6fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>',
+};
+
+// Each website shows its own icon, loaded from the website itself (the way any
+// browser shows site icons). A coloured letter stands in while offline.
+const DEFAULT_SITES = [
+  { name: "YouTube", url: "https://www.youtube.com/", icon: "https://m.youtube.com/static/apple-touch-icon-180x180-precomposed.png" },
+  { name: "Google", url: "https://www.google.com/", icon: "https://www.google.com/images/branding/googleg/1x/googleg_standard_color_128dp.png" },
+  { name: "Gmail", url: "https://mail.google.com/", icon: "https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico" },
+  { name: "WhatsApp", url: "https://web.whatsapp.com/", icon: "https://web.whatsapp.com/favicon.ico" },
+  { name: "Wikipedia", url: "https://www.wikipedia.org/", icon: "https://www.wikipedia.org/static/apple-touch/wikipedia.png" },
+  { name: "Facebook", url: "https://www.facebook.com/", icon: "https://www.facebook.com/images/fb_icon_325x325.png" },
+  { name: "Netflix", url: "https://www.netflix.com/", icon: "https://assets.nflxext.com/us/ffe/siteui/common/icons/nficon2016.png" },
+  { name: "ChatGPT", url: "https://chatgpt.com/", icon: "https://cdn.oaistatic.com/assets/favicon-o20kmmos.svg" },
+];
+const STORE_KEY = "onlybrowseros.sites";
+const MAX_SITES = 14;
+const LETTER_COLOURS = ["#1f6fff", "#12a150", "#8b5cf6", "#e8590c", "#d6336c", "#0c8599", "#5c7cfa"];
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+let sites = loadSites();
+
+function loadSites() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (Array.isArray(saved)) {
+      return saved.filter((s) => s && typeof s.name === "string" && /^https?:\/\//.test(s.url)).slice(0, MAX_SITES);
+    }
+  } catch (err) {
+    // Storage unavailable or damaged: fall back to the defaults.
+  }
+  return DEFAULT_SITES.slice();
+}
+
+function saveSites() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(sites));
+  } catch (err) {
+    // Not fatal: the change lasts until the tab closes.
+  }
+}
+
+function symbolIcon(key) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 48 48");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = ICONS[key];
+  return svg;
+}
+
+function letterIcon(name) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 48 48");
+  svg.setAttribute("aria-hidden", "true");
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const circle = document.createElementNS(SVG_NS, "circle");
+  circle.setAttribute("cx", "24"); circle.setAttribute("cy", "24"); circle.setAttribute("r", "20");
+  circle.setAttribute("fill", LETTER_COLOURS[hash % LETTER_COLOURS.length]);
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("x", "24"); text.setAttribute("y", "31.5");
+  text.setAttribute("text-anchor", "middle"); text.setAttribute("font-size", "21");
+  text.setAttribute("font-weight", "700"); text.setAttribute("fill", "#fff");
+  text.textContent = (name.trim()[0] || "?").toUpperCase();
+  svg.append(circle, text);
+  return svg;
+}
+
+// The site's own icon when it loads; otherwise the letter stays.
+function siteIcon(site) {
+  const box = document.createElement("span");
+  box.className = "site-icon";
+  box.append(letterIcon(site.name));
+  let origin;
+  try {
+    origin = new URL(site.url).origin;
+  } catch (err) {
+    return box;
+  }
+  const sources = [];
+  if (/^https:\/\//.test(site.icon || "")) sources.push(site.icon);
+  sources.push(`${origin}/favicon.ico`);
+  const img = document.createElement("img");
+  img.alt = "";
+  img.referrerPolicy = "no-referrer";
+  let next = 0;
+  const tryNext = () => {
+    if (next < sources.length) img.src = sources[next++];
+  };
+  img.addEventListener("load", () => box.classList.add("loaded"));
+  img.addEventListener("error", tryNext);
+  box.append(img);
+  tryNext();
+  return box;
+}
+
+function tile(href, icon, label) {
+  const a = document.createElement("a");
+  a.className = "tile";
+  a.href = href;
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = label;
+  a.append(icon, name);
+  return a;
+}
+
+function render() {
+  const list = document.getElementById("sites");
+  list.textContent = "";
+
+  const downloads = document.createElement("li");
+  downloads.append(tile("downloads.html", symbolIcon("downloads"), "Downloads"));
+  list.append(downloads);
+
+  sites.forEach((site, index) => {
+    const li = document.createElement("li");
+    const remove = document.createElement("button");
+    remove.className = "remove";
+    remove.type = "button";
+    remove.textContent = "×";
+    remove.title = `Remove ${site.name}`;
+    remove.setAttribute("aria-label", `Remove ${site.name}`);
+    remove.addEventListener("click", () => {
+      sites.splice(index, 1);
+      saveSites();
+      render();
+    });
+    li.append(tile(site.url, siteIcon(site), site.name), remove);
+    list.append(li);
+  });
+
+  if (sites.length < MAX_SITES) {
+    const li = document.createElement("li");
+    const add = document.createElement("button");
+    add.className = "tile";
+    add.type = "button";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = "Add site";
+    add.append(symbolIcon("add"), name);
+    add.addEventListener("click", openAddDialog);
+    li.append(add);
+    list.append(li);
+  }
+}
+
+// Words go to the search engine; something that looks like an address opens directly.
+function addressFrom(text) {
+  if (/\s/.test(text)) return null;
+  if (/^https?:\/\/\S+$/i.test(text)) return text;
+  if (/^(localhost|(\d{1,3}\.){3}\d{1,3})(:\d+)?(\/\S*)?$/i.test(text)) return "http://" + text;
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(:\d+)?(\/\S*)?$/i.test(text)) return "https://" + text;
+  return null;
+}
+
+document.querySelector("form.search").addEventListener("submit", (event) => {
+  const text = document.getElementById("q").value.trim();
+  if (!text) {
+    event.preventDefault();
+    return;
+  }
+  if (/^downloads?$/i.test(text)) {
+    event.preventDefault();
+    location.href = "downloads.html";
+    return;
+  }
+  const address = addressFrom(text);
+  if (address) {
+    event.preventDefault();
+    location.href = address;
+  }
+});
+
+const dialog = document.getElementById("add-dialog");
+const urlInput = document.getElementById("add-url");
+const nameInput = document.getElementById("add-name");
+const addError = document.getElementById("add-error");
+
+function openAddDialog() {
+  urlInput.value = "";
+  nameInput.value = "";
+  addError.textContent = "";
+  dialog.showModal();
+  urlInput.focus();
+}
+
+document.getElementById("add-cancel").addEventListener("click", () => dialog.close());
+
+document.getElementById("add-form").addEventListener("submit", (event) => {
+  const raw = urlInput.value.trim();
+  let url = null;
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : "https://" + raw);
+    if (/^https?:$/.test(parsed.protocol) && parsed.hostname.includes(".")) url = parsed;
+  } catch (err) {
+    url = null;
+  }
+  if (!url) {
+    event.preventDefault();
+    addError.textContent = "That does not look like a website address. Try something like bbc.com";
+    return;
+  }
+  const host = url.hostname.replace(/^www\./, "");
+  const fallback = host.split(".")[0];
+  const name = nameInput.value.trim() || fallback.charAt(0).toUpperCase() + fallback.slice(1);
+  sites.push({ name: name.slice(0, 30), url: url.href });
+  saveSites();
+  render();
+});
+
+const offline = document.getElementById("offline");
+function showConnection() {
+  offline.hidden = navigator.onLine;
+}
+window.addEventListener("online", showConnection);
+window.addEventListener("offline", showConnection);
+
+// The tab icon is the logo above.
+document.getElementById("favicon").href =
+  "data:image/svg+xml," + encodeURIComponent(document.getElementById("logo").outerHTML);
+
+render();
+showConnection();
+</script>
+</body>
+</html>
