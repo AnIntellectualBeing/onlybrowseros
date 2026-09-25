@@ -98,6 +98,7 @@ step does and why, so you can make a system like this without my scripts.
 | [06 – Build it from scratch](docs/06-build-from-scratch.md) | The full process by hand, step by step |
 | [07 – How I built it](docs/07-project-story.md) | The project from first prototype to v1.2, and the hard problems |
 | [08 – Memory](docs/08-memory.md) | Where the RAM goes and how I brought it down |
+| [09 – How I work on it](docs/09-how-i-work.md) | Build machine, tools, every command, testing, GitHub releases; how to make your own |
 
 ## Project layout
 
