@@ -1,0 +1,8 @@
+Package: myos-browser
+Version: 0.1
+Architecture: all
+Maintainer: Your Name <you@example.org>
+Depends: firefox-esr
+Description: MyOS browser set-up: rules and start page
+ Firefox rules for MyOS (no developer tools, no private windows, no
+ first-run pages) and the MyOS start page.

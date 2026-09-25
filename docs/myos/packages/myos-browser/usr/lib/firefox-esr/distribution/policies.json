@@ -1,0 +1,28 @@
+{
+  "policies": {
+    "Homepage": {
+      "URL": "file:///usr/share/myos/start.html",
+      "StartPage": "homepage",
+      "Locked": true
+    },
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "DontCheckDefaultBrowser": true,
+    "NoDefaultBookmarks": true,
+    "DisplayBookmarksToolbar": "never",
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisableAppUpdate": true,
+    "DisablePocket": true,
+    "DisableDeveloperTools": true,
+    "DisablePrivateBrowsing": true,
+    "BlockAboutConfig": true,
+    "UserMessaging": {
+      "SkipOnboarding": true,
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "MoreFromMozilla": false,
+      "Locked": true
+    }
+  }
+}

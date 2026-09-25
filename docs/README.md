@@ -13,6 +13,7 @@ How OnlyBrowserOS works, how I built it, and why it is built the way it is.
 | [`07-project-story.md`](07-project-story.md) | How the project went, from first prototype to v1.2, and the hardest problems |
 | [`08-memory.md`](08-memory.md) | Where the RAM goes, how I measure it, and how I brought it down |
 | [`09-how-i-work.md`](09-how-i-work.md) | My build machine, tools, every command I run, testing, and publishing on GitHub; how to make your own |
+| [`10-make-your-own-os.md`](10-make-your-own-os.md) | **A hands-on course:** build your own small OS (MyOS) from an empty folder, lesson by lesson, and learn how to customise every part |
 
 ## Quick facts
 

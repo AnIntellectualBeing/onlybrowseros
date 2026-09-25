@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Window rules for MyOS (openbox reads this at start). -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <!-- Keep the bottom 40 pixels free for the bar. -->
+  <margins><top>0</top><bottom>40</bottom><left>0</left><right>0</right></margins>
+  <desktops><number>1</number></desktops>
+  <keyboard>
+    <keybind key="A-F4"><action name="Close"/></keybind>
+    <keybind key="A-Tab"><action name="NextWindow"/></keybind>
+  </keyboard>
+  <applications>
+    <!-- The browser: no title bar, fills the screen above the bar. -->
+    <application class="firefox*" type="normal">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <focus>yes</focus>
+    </application>
+    <!-- The bar: always on top. -->
+    <application name="myos-bar">
+      <decor>no</decor>
+      <layer>above</layer>
+      <skip_taskbar>yes</skip_taskbar>
+    </application>
+  </applications>
+</openbox_config>
