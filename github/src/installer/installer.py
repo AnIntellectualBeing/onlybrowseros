@@ -164,6 +164,19 @@ def human_size(n):
     return f"{n / 1e9:.0f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB"
 
 
+def raid_controller():
+    """An Intel storage controller in RAID (RST) mode hides its disks from
+    Linux; the firmware setting has to go back to AHCI."""
+    for dev in Path("/sys/bus/pci/devices").glob("*"):
+        try:
+            if (dev / "class").read_text().startswith("0x0104") and \
+                    (dev / "vendor").read_text().strip() == "0x8086":
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def list_disks():
     try:
         out = subprocess.run(
@@ -833,9 +846,16 @@ class Installer(Gtk.Window):
             self.disk_box.pack_start(b, False, False, 0)
 
         if not usable:
-            self.disk_box.pack_start(label(
-                "No disk of 8 GB or more was found. If this computer has one, check that it is "
-                "connected, then choose Look for disks again.", "error", xalign=0.5), False, False, 0)
+            if raid_controller():
+                text = ("No disk was found. This computer keeps its disk in \u201cRAID\u201d or "
+                        "\u201cIntel RST\u201d mode, which OnlyBrowserOS cannot use. Restart, open the "
+                        "computer\u2019s setup screen (often F2, F10 or Del while it starts), set "
+                        "SATA or storage mode to AHCI, save and start from the USB stick again. "
+                        "Windows on this disk will not start afterwards; installing replaces it anyway.")
+            else:
+                text = ("No disk of 8 GB or more was found. If this computer has one, check that it is "
+                        "connected, then choose Look for disks again.")
+            self.disk_box.pack_start(label(text, "error", xalign=0.5, wrap=True), False, False, 0)
         self.disk_box.show_all()
         self.show_disk_choice()
 

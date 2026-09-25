@@ -10,7 +10,6 @@ import json
 import os
 import queue
 import re
-import secrets
 import subprocess
 import threading
 import time
@@ -398,7 +397,9 @@ def bt_pair(mac, on_code=None):
         m = re.search(r"Enter (?:PIN code|passkey)", text)
         if m:
             seen[0] = text[m.end():]
-            code = f"{secrets.randbelow(1000000):06d}"
+            # os.urandom rather than the secrets module, which loads OpenSSL
+            # (several MB) into the taskbar for one number.
+            code = f"{int.from_bytes(os.urandom(4), 'big') % 1000000:06d}"
             send(code)
             tell(f"On the device, type {code} and press Enter.")
             return

@@ -71,6 +71,20 @@ rather than a heavier desktop environment's panel, to keep memory use low
 - **`BatteryAlert`** — a separate always-on-top window that appears at 10%
   battery (a warning) and again at 5%/3% (a countdown to a clean shutdown, so
   the browser gets a chance to save open tabs before the battery dies).
+- **`DiskAlert`** — appears once when less than 400 MB of space is left
+  (on the USB stick that space is RAM), with a button to the Downloads page
+  where files can be deleted. Checked every 10 minutes.
+- **`LevelOSD`** — the small volume/brightness bar shown above the taskbar for
+  1.5 s after a laptop key is pressed. Openbox binds the keys to
+  `src/session/media-key`, which changes the level and writes it to
+  `$XDG_RUNTIME_DIR/onlybrowseros/osd`; the taskbar watches that file with
+  inotify (Gio.FileMonitor), so nothing polls.
+- **Screens** — a udev rule (`90-onlybrowseros-display.rules`) touches
+  `/run/onlybrowseros/display-changed` when a monitor, TV or projector is
+  plugged in or out; the taskbar then runs `xrandr` so every screen shows the
+  same picture (the laptop's own screen at its native size, the others scaled
+  to match). With one browser window, a second "extended" desktop would only
+  be somewhere to lose the mouse.
 - All the actual system calls (reading Wi-Fi status, connecting to a network,
   setting volume, reading battery state) live in **`src/panel/system.py`** —
   a thin wrapper around command-line tools (`nmcli`, `bluetoothctl`, `pactl`,

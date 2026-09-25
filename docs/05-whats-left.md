@@ -60,6 +60,12 @@ behavior. Before shipping to actual people:
   Wi-Fi printer and a USB printer if possible.
 - **Install onto a real disk**, not just a QEMU virtual disk — disk timing
   and quirks vary a lot between real SSDs/HDDs and QEMU's virtio disk.
+- **v1.2 hardware features, untested on real hardware:** Bluetooth
+  headphones actually playing sound, the volume/brightness key overlay,
+  plugging in an HDMI TV/projector (should mirror), the screen switching off
+  after 10 idle minutes but staying on during a video, a short power-button
+  press sleeping and a long press shutting down, and the "RAID / Intel RST"
+  message in the installer on laptops whose disk is hidden that way.
 - Try it on the **lowest-spec machine you have** — 1GB of RAM if you can
   find one — since that's the hardest case the "Low-end PC" tier is meant to
   handle.
@@ -93,9 +99,9 @@ behavior. Before shipping to actual people:
 - Work or school Wi-Fi that requires a username as well as a password
   (802.1X) is not supported yet — the network menu will tell the user this
   rather than silently failing.
-- Bluetooth devices that require typing a pairing code (some keyboards) are
-  not supported yet; headphones, speakers, and mice (which don't need a
-  code) work fine.
+- Bluetooth pairing with a code (v1.2): keyboards show "type 123456 on the
+  device", phones are confirmed automatically. Only tested against a fake
+  `bluetoothctl` (QEMU has no Bluetooth) — try a real keyboard and phone.
 - No CJK (Chinese/Japanese/Korean) fonts are included, to keep the image
   size down — those languages will show as missing-glyph boxes.
 - Firefox's own emergency escape hatches (some keyboard shortcuts,
