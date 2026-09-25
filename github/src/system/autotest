@@ -44,6 +44,46 @@ session_user() { getent group obos | cut -d: -f4 | cut -d, -f1; }
 
 # Proportional memory (shared libraries split between their users) of every
 # process whose command line matches.
+# Where the memory goes: "in use" is MemTotal - MemAvailable, the number that
+# decides whether the next tab fits. Programs by PSS (shared pages split
+# between the processes that use them), then the kernel's own share.
+memory_breakdown() {
+  python3 - <<'PY'
+import collections, os
+from pathlib import Path
+mi = {}
+for line in open("/proc/meminfo"):
+    k, v = line.split(":"); mi[k] = int(v.split()[0]) // 1024
+groups = collections.Counter()
+for p in Path("/proc").iterdir():
+    if not p.name.isdigit(): continue
+    try:
+        comm = (p / "comm").read_text().strip()
+        pss = next(int(l.split()[1]) for l in open(p / "smaps_rollup") if l.startswith("Pss:"))
+    except (OSError, StopIteration):
+        continue
+    cmd = (p / "cmdline").read_bytes()
+    if b"firefox-esr" in cmd and comm != "earlyoom": comm = "Firefox (all processes)"
+    elif b"panel.py" in cmd: comm = "taskbar"
+    elif b"home.py" in cmd: comm = "home screen"
+    elif b"installer.py" in cmd: comm = "installer"
+    groups[comm] += pss
+zram = 0
+try:
+    zram = int(open("/sys/block/zram0/mm_stat").read().split()[2]) // 1024 // 1024
+except (OSError, IndexError, ValueError):
+    pass
+used = mi["MemTotal"] - mi["MemAvailable"]
+print(f"IN USE {used} MB of {mi['MemTotal']} MB (MemTotal - MemAvailable)")
+progs = sum(groups.values()) // 1024
+print(f"  programs {progs} MB:")
+for name, kb in groups.most_common(14):
+    print(f"    {kb // 1024:5d} MB  {name}")
+print(f"  kernel: slab {mi['SUnreclaim']} MB unreclaimable, page tables {mi['PageTables']} MB, "
+      f"stacks {mi.get('KernelStack', 0)} MB; zram holds {zram} MB; tmpfs/shared {mi['Shmem']} MB")
+PY
+}
+
 pss() {
   local total=0 pid kb
   for pid in $(pgrep -f "$1"); do
@@ -288,6 +328,7 @@ report() {
   dump cat /run/onlybrowseros/state.json
   say "MEMORY at rest"
   dump free -m
+  dump memory_breakdown
   dump pss 'firefox-esr' 'browser (all Firefox processes)'
   dump pss 'onlybrowseros/panel' 'taskbar'
   dump pss 'Xorg' 'screen (Xorg)'

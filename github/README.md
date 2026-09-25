@@ -14,8 +14,15 @@ along the bottom. Nothing else to learn.
   and big website buttons; "Add site" adds your own, × removes one
 - Closing the browser shows a home screen with an "Open the browser" button
   instead of leaving a blank screen; crashes restart the browser by themselves
-- Taskbar: Wi-Fi, network cable (LAN), Bluetooth, sound and microphone, screen
-  brightness, battery, clock, memory use, power
+- Taskbar: Wi-Fi, network cable (LAN), Bluetooth (headphones, speakers, mice,
+  keyboards and phones, including devices that show or ask for a pairing
+  code), sound and microphone, screen brightness, battery, clock, memory use,
+  power
+- Laptop keys: volume, mute and brightness show their level on screen; a short
+  press of the power button sleeps, a long press shuts down; the screen turns
+  off after 10 idle minutes but never during a video
+- A TV or projector plugged in shows the same picture as the laptop
+- A warning when space for downloads runs low, with a way to delete old ones
 - **How powerful is this computer?** Low-end PC (up to 2 tabs, 1 on a 1 GB
   laptop), Mid-range PC (4) or High-end PC (8). The level that fits the memory is
   recommended. Chosen in the installer, changed later in Settings, where it
@@ -65,8 +72,9 @@ along the bottom. Nothing else to learn.
 | Session | Auto-login → X → openbox → taskbar + Firefox | `src/session/`, `build/overlay/` |
 | Memory safety | zram (compressed RAM swap) and earlyoom (closes the heaviest tab before the laptop freezes) | `build/overlay/etc/` |
 
-The old web-page shell from the WebOS prototype is kept in `legacy/` for
-reference; the build does not use it.
+My first prototype, a desktop made of web pages ("WebOS"), is kept in
+`legacy/` for reference; the build does not use it. Full documentation is in
+[`../docs/`](../docs/README.md).
 
 ## Build the ISO
 
@@ -79,7 +87,7 @@ sudo ./build-iso.sh
 
 Nothing is compiled. The build downloads ready-made Debian packages into a
 folder, adds OnlyBrowserOS, and packs everything into one bootable file:
-`build/out/onlybrowseros-1.0-amd64.iso` (about 800 MB). The first build takes
+`build/out/onlybrowseros-1.2-amd64.iso` (about 800 MB). The first build takes
 30–60 minutes, mostly downloading. After changing anything in `src/` or
 `build/overlay/`, rebuild in a couple of minutes with:
 
@@ -113,7 +121,7 @@ and saves a screenshot in `build/test/`.
 
 - **Windows:** [Rufus](https://rufus.ie) (choose *DD image mode* when asked) or
   [balenaEtcher](https://etcher.balena.io).
-- **Linux:** `sudo dd if=build/out/onlybrowseros-1.0-amd64.iso of=/dev/sdX bs=4M status=progress oflag=sync`
+- **Linux:** `sudo dd if=build/out/onlybrowseros-1.2-amd64.iso of=/dev/sdX bs=4M status=progress oflag=sync`
   (replace `sdX` with the USB stick; everything on it is erased).
 
 Then start the laptop from the USB stick (usually F12, F9 or Esc at power-on).
@@ -161,6 +169,4 @@ Updated files take effect at the next browser start or restart.
 
 - 64-bit processors only; no modern browser supports 32-bit any more.
 - Work or school Wi-Fi that needs a user name (802.1X) cannot be joined yet.
-- Bluetooth devices that ask for a pairing code (some keyboards) cannot be paired
-  yet; headphones, speakers and mice work.
 - Chinese, Japanese and Korean fonts are not included, to keep the image small.

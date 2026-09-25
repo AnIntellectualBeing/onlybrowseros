@@ -129,6 +129,9 @@ COMMON_PREFS = {
     # preloaded in the background; neither is wanted.
     "browser.newtabpage.enabled": False,
     "browser.newtab.preload": False,
+    # Firefox keeps a "privileged about" process alive for its own new-tab
+    # page even when that page is off: 14 MB holding no page at all (measured).
+    "dom.ipc.keepProcessesAlive.privilegedabout": 0,
     "browser.startup.homepage": START_PAGE,
 
     # Nothing that runs in the background for someone else's benefit.

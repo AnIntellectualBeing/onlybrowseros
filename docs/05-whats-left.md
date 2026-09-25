@@ -1,29 +1,28 @@
 # What's Left
 
-This session is ending. This file is the handoff: what you need to provide
-or decide, what a future session should verify before shipping, and known
-gaps that exist but aren't blocking.
+My to-do list: what has to happen before updates work, what still needs
+testing on real hardware, open decisions, and known gaps that aren't
+blocking.
 
-## You need to do these before updates work
+## Before my own updates work
 
 The update mechanism (see `03-how-it-was-built.md`) is **built and tested
 with a throwaway key, but not activated on the real release**. To turn it on:
 
-1. **Create the real signing key** (one time, on your own machine, not as
+1. **Create the real signing key** (one time, on my own machine, not as
    root):
    ```
    cd github/build
    ./make-signing-key.sh your@email
    ```
-   It will ask for a passphrase and then tell you to back up the private key
-   to two separate offline USB sticks. **Do this — if the key is lost, no
+   It asks for a passphrase and then says to back up the private key to two
+   separate offline USB sticks. **This matters: if the key is lost, no
    computer already sold or installed can ever receive another update.**
    Never commit the private key to git or share it.
 
-2. **Create the public GitHub repo for updates** (I referenced it as
+2. **Create the public GitHub repo for updates** (already named
    `AnIntellectualBeing/onlybrowseros-updates` in `build/config.sh` —
-   `OBOS_UPDATE_REPO` / `OBOS_UPDATE_URL` — but never created it, since it's
-   a public repo and that was your call to make):
+   `OBOS_UPDATE_REPO` / `OBOS_UPDATE_URL`):
    ```
    gh repo create AnIntellectualBeing/onlybrowseros-updates --public --add-readme
    ```
@@ -32,7 +31,7 @@ with a throwaway key, but not activated on the real release**. To turn it on:
 
 3. **Rebuild the ISO** after step 1 exists — the build script only bakes in
    the update URL and public key if it finds a key in `build/keys/`. Any ISO
-   built before this (including the current v1.1 release) only gets Debian
+   built before this (including v1.1 and v1.2) only gets Debian
    security patches, not OnlyBrowserOS updates.
 
 4. **For every future release**, from then on:
@@ -41,7 +40,7 @@ with a throwaway key, but not activated on the real release**. To turn it on:
    ./release.sh
    ```
 
-## Needs real-hardware testing (nothing here has touched real hardware yet)
+## Needs real-hardware testing
 
 Everything so far has been tested in QEMU (a virtual machine), which proves
 the software logic works but can't fully validate real-world hardware
@@ -66,21 +65,21 @@ behavior. Before shipping to actual people:
   after 10 idle minutes but staying on during a video, a short power-button
   press sleeping and a long press shutting down, and the "RAID / Intel RST"
   message in the installer on laptops whose disk is hidden that way.
-- Try it on the **lowest-spec machine you have** — 1GB of RAM if you can
+- Try it on the **lowest-spec machine I can get** — 1GB of RAM if I can
   find one — since that's the hardest case the "Low-end PC" tier is meant to
   handle.
 
-## Decisions still open (need your input)
+## Decisions still open
 
 - **Trademark check was a web search only, not a legal one.** Before
   selling or publicly shipping under the name "OnlyBrowserOS," search the
   official trademark databases (USPTO, EUIPO TMview, WIPO Global Brand
   Database) or talk to a trademark lawyer. The closest existing name found
   was "BrowserOS" (an unrelated AI browser project) — worth a specific look.
-- **Legal pages** (privacy policy, terms, license) — deliberately deferred,
-  per your earlier decision. Needed before any public release with real
+- **Legal pages** (privacy policy, terms, license) — deferred
+  for now. Needed before any public release with real
   users.
-- **Language** — English only, per your decision. No i18n/translation
+- **Language** — English only for now. No i18n/translation
   infrastructure exists yet; if that changes later, every user-facing string
   in the Python files, the extension, and the HTML pages would need to be
   extracted into a translation system.
@@ -115,19 +114,8 @@ behavior. Before shipping to actual people:
   hidden. The menu paths are blocked; the underlying pages themselves are
   not.
 
-## Where to pick this up next session
+## Where to start when coming back to this
 
-Read the files in this order if you're a new session picking this project
-back up:
-1. `docs/README.md` (this index)
-2. `docs/02-how-it-works.md` — understand the architecture before touching
-   code
-3. This file, to see what's outstanding
-4. Then check `git log` for the most recent commits to see what's changed
-   since this file was written — **this file describes the state as of the
-   `onlybrowseros-v1.1` release; it will go stale as more work happens.**
-
-The project's memory files (used by the Claude Code session, not part of the
-git repo) also track decisions and context — check
-`~/.claude/projects/-home-vboxuser-Documents-projects-webos/memory/` if
-continuing in the same Claude Code environment.
+1. `docs/02-how-it-works.md` — the architecture
+2. this file — what is outstanding
+3. `git log` — what changed since this file was last updated

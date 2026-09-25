@@ -21,8 +21,7 @@ re-run skips finished stages — and `--from overlay` lets you rebuild in
    (`PKGS_FIRMWARE`, `PKGS_VM`) are allowed to fail package-by-package,
    since not every laptop's Wi-Fi/graphics firmware exists for every
    architecture.
-4. **`overlay`** — this is where OnlyBrowserOS actually gets installed. As of
-   this session, it works by **building the real `.deb` package
+4. **`overlay`** — this is where OnlyBrowserOS actually gets installed. It works by **building the real `.deb` package
    (`make-package.sh`) and installing it with `dpkg -i` inside the chroot** —
    the same package that gets published as an update later, so there's only
    one definition of "what OnlyBrowserOS consists of," not two.
@@ -132,5 +131,5 @@ Fully automated, no human clicking through a VM:
    security repo — so an update Just Happens, with no UI, the same way a
    Firefox security patch does.
 
-**Status as of this session: built and tested with a throwaway key, but not
-yet activated for real** — see [`05-whats-left.md`](05-whats-left.md).
+**Status: built and tested with a throwaway key, but not yet activated with
+the real release key** — see [`05-whats-left.md`](05-whats-left.md).

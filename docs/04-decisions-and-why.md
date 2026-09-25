@@ -1,4 +1,4 @@
-# Decisions and Why — Interview-Ready Reasoning
+# Decisions and Why
 
 This file is the "why did you do X instead of Y" answers, gathered in one
 place. Each one was a real trade-off, not an arbitrary choice.
@@ -31,8 +31,8 @@ pipeline.
 
 ## Why is the tab limit described as "Low-end / Mid-range / High-end PC" instead of a number?
 
-Early versions let the installer set a raw tab count. The product owner's
-feedback was that a number like "4 tabs" means nothing to someone buying a
+Early versions let the installer set a raw tab count. Then I realised a
+number like "4 tabs" means nothing to someone buying a
 computer, but "Mid-range PC" is language people already use when shopping for
 a laptop. The underlying mechanism didn't change — it's still a number of
 tabs, calculated from RAM — only the label shown to the user did. This is a
@@ -97,18 +97,18 @@ installing the wrong thing" risk the whole product exists to prevent.
 
 ## Why Secure Boot support instead of just telling users to disable it?
 
-Early testing shipped with Secure Boot required to be off, with a note in
-the README. The product owner's feedback was direct: most people buying a
+My early builds needed Secure Boot switched off, with a note in the README.
+I changed that because most people buying a
 laptop from the last ~10 years will never go into firmware settings, and
 telling them to is itself a support burden and a support failure for a
 product whose entire pitch is "no learning curve." The fix (signed shim +
 signed GRUB, hand-built hybrid ISO) is more build-system complexity, but it's
-complexity paid once by the developer instead of confusion paid by every
+complexity I pay once instead of confusion paid by every
 user.
 
 ## Why a self-hosted apt repo for updates instead of a hosted service?
 
-The project owner already has a GitHub account and no budget for a paid
+I already had a GitHub account and no budget for a paid
 update-hosting service. GitHub Pages serves static files for free, and
 `apt-ftparchive` + GPG signing is the exact mechanism Debian itself uses for
 its own repos — no custom protocol to invent or maintain, and any Debian

@@ -1,6 +1,6 @@
 # How It Works — Technical Architecture
 
-This is the file to read before an interview. It explains the whole system,
+This explains the whole system,
 piece by piece, in the order the computer actually touches them: power on →
 kernel → login → browser on screen.
 
@@ -111,8 +111,7 @@ buttons and a step indicator:
 
 ### `src/installer/install-helper` (~580 lines)
 
-This is the security-sensitive half of the installer, and it's worth
-understanding well for an interview:
+This is the security-sensitive half of the installer:
 
 - Runs as root via a **narrowly-scoped sudoers rule** — the desktop user can
   run *only this one script*, and only while running from the live USB (a
@@ -243,6 +242,7 @@ build/
   make-signing-key.sh one-time GPG key setup for update signing
   release.sh          publishes a new .deb to the update repo
   test-iso.sh         QEMU-based automated testing
+  bench/              measures Firefox's memory per setting (docs/08-memory.md)
   overlay/            static system config files copied verbatim into the image
                        (sudoers rules, polkit rules, systemd units, etc.)
 ```
