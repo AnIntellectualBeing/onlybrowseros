@@ -20,7 +20,27 @@ memory is used, how I measure it, and what each setting really saves.
 
 ## Where it goes (1 GB, installed, start page open)
 
-RESULTS_TABLE
+Measured by the self-test on an installed system in a 1 GB virtual machine,
+two minutes after start, start page open (v1.2):
+
+| Part | MB |
+|---|---|
+| Firefox, all processes | 428 |
+| Taskbar (Python + GTK) | 24 |
+| Xorg (the screen) | 16 |
+| NetworkManager, wpa_supplicant | 10 |
+| systemd, udev, journald, login | 15 |
+| PipeWire + WirePlumber (sound) | 14 |
+| openbox, earlyoom, the rest | ~10 |
+| Kernel: slab, page tables, stacks | 40 |
+| zram (compressed swap contents) | 29 |
+| **In use** (`MemTotal − MemAvailable`) | **610 of 964** |
+
+A minute after start, Firefox now frees its start-up garbage once
+(`src/firefox/onlybrowseros.cfg`), which the bench measures at −30 MB, so the
+idle system settles around **580 MB** (the numbers above already include the
+removed "privileged" process). Everything except Firefox is about 180 MB, and 70 MB of that is the
+kernel.
 
 The web page dominates everything else. Measured with the same Firefox and
 settings:
@@ -83,6 +103,7 @@ baseline.
 
 | Setting | Result | Decision |
 |---|---|---|
+| One `minimizeMemoryUsage()` a minute after start (autoconfig) | −30 MB (178 → 149 MB anonymous); same result as forcing it | **kept** |
 | `dom.ipc.keepProcessesAlive.privilegedabout = 0` | −14 MB: removes a process kept alive for Firefox's own new-tab page, which holds no page | **kept** (all tiers) |
 | `media.rdd-process.enabled = false` (no separate video decoder) | −11 MB anonymous | rejected: hardware video decoding runs in that process; without it, video is decoded by the CPU, which lags on old laptops |
 | Separate file:// and "privileged" process off | no change: the process is only renamed | rejected (and it weakens isolation) |
@@ -94,8 +115,9 @@ baseline.
 
 ## Ideas not done yet, with estimates
 
-- **Taskbar in C instead of Python + GTK**: roughly 25–40 MB → 8–10 MB.
-  The biggest remaining item outside Firefox; a rewrite of ~2,000 lines.
+- **Taskbar in C instead of Python + GTK**: an empty Python + GTK window
+  already costs 34 MB (the taskbar is 41 MB), so only a rewrite helps, to
+  roughly 10–15 MB. The biggest remaining item outside Firefox; ~2,000 lines.
 - **Wayland kiosk (cage) instead of Xorg + openbox**: maybe 10–20 MB, but the
   taskbar and popups would need rewriting for Wayland.
 - **Alpine Linux instead of Debian**: I estimate 20–40 MB (OpenRC instead of

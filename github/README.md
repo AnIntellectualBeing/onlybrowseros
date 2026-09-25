@@ -169,4 +169,6 @@ Updated files take effect at the next browser start or restart.
 
 - 64-bit processors only; no modern browser supports 32-bit any more.
 - Work or school Wi-Fi that needs a user name (802.1X) cannot be joined yet.
+- Some older Broadcom Wi-Fi chips (common in 2010–2015 HP and Dell laptops) need
+  a driver that has to be compiled on the machine, so their Wi-Fi does not work.
 - Chinese, Japanese and Korean fonts are not included, to keep the image small.

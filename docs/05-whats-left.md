@@ -97,6 +97,10 @@ behavior. Before shipping to actual people:
   extension's first 10 seconds (so a restored session is never closed), so a
   tab opened right then gets through: one extra tab until the user closes
   one. Seen once in four 1 GB test runs (v1.2), under software emulation.
+- "Open Settings" from the taskbar failed once in the self-test on an installed
+  1 GB VM (settings tab not found after 75 s); it passed in six other VM runs
+  and works natively with a 1-tab limit. Probably timing under software
+  emulation; watch for it on real hardware.
 - A downloaded test PDF appeared twice in one test run (`report.pdf` and
   `report-1.pdf`) — Firefox's own "don't overwrite" renaming, most likely,
   but not investigated further.
@@ -106,6 +110,9 @@ behavior. Before shipping to actual people:
 - Bluetooth pairing with a code (v1.2): keyboards show "type 123456 on the
   device", phones are confirmed automatically. Only tested against a fake
   `bluetoothctl` (QEMU has no Bluetooth) — try a real keyboard and phone.
+- Older Broadcom Wi-Fi chips (BCM4312/4313/43142 and similar) need Debian's
+  `broadcom-sta-dkms`, which compiles a kernel module on the machine and would
+  bring a compiler into the image; not supported yet.
 - No CJK (Chinese/Japanese/Korean) fonts are included, to keep the image
   size down — those languages will show as missing-glyph boxes.
 - Firefox's own emergency escape hatches (some keyboard shortcuts,

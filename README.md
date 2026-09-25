@@ -120,8 +120,9 @@ github/legacy/         my first prototype (a desktop made of web pages), kept fo
 
 ## Status
 
-Version 1.2. Tested automatically in QEMU on BIOS, UEFI and UEFI with Secure
-Boot, with 1 to 2 GB of RAM. Real-hardware testing is in progress; see
+Version 1.2. At idle on a 1 GB laptop the whole system uses about 580 MB, most
+of it Firefox ([how that is measured](docs/08-memory.md)). Tested automatically
+in QEMU on BIOS, UEFI and UEFI with Secure Boot, with 1 to 2 GB of RAM. Real-hardware testing is in progress; see
 [docs/05-whats-left.md](docs/05-whats-left.md).
 
 Based on Debian 13 "trixie". OnlyBrowserOS's own code is by AnIntellectualBeing;
