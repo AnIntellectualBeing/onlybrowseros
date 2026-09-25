@@ -93,6 +93,11 @@ behavior. Before shipping to actual people:
   correctly refusing an unsigned boot loader with "Access Denied"). The
   detection logic in `src/system/autotest` was fixed afterward, but that fix
   itself hasn't been re-run through the full automated test yet.
+- On a very slow first start, Firefox can take minutes to install the
+  OnlyBrowserOS extension. The tab limit ignores tabs opened in the
+  extension's first 10 seconds (so a restored session is never closed), so a
+  tab opened right then gets through: one extra tab until the user closes
+  one. Seen once in four 1 GB test runs (v1.2), under software emulation.
 - A downloaded test PDF appeared twice in one test run (`report.pdf` and
   `report-1.pdf`) — Firefox's own "don't overwrite" renaming, most likely,
   but not investigated further.
