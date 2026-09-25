@@ -1,0 +1,3 @@
+# OnlyBrowserOS: a screen, TV or projector was plugged in or out. The taskbar
+# watches this file and shows the laptop's picture on every connected screen.
+ACTION=="change", SUBSYSTEM=="drm", ENV{HOTPLUG}=="1", RUN+="/bin/sh -c 'mkdir -p /run/onlybrowseros && touch /run/onlybrowseros/display-changed'"

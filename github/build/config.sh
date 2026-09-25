@@ -5,7 +5,7 @@
 # ---------------------------------------------------------------- identity
 OBOS_NAME="${OBOS_NAME:-OnlyBrowserOS}"
 OBOS_ID="${OBOS_ID:-onlybrowseros}"           # lowercase, used for paths and file names
-OBOS_VERSION="${OBOS_VERSION:-1.0}"
+OBOS_VERSION="${OBOS_VERSION:-1.2}"
 OBOS_HOSTNAME="${OBOS_HOSTNAME:-onlybrowseros}"
 OBOS_USER="${OBOS_USER:-user}"                # live account; the installer renames it
 OBOS_PASSWORD="${OBOS_PASSWORD:-live}"        # live session only; the installer asks for a real one
@@ -64,12 +64,16 @@ PKGS_GRAPHICS="
 
 # libavcodec is added by the build (its package name carries the soversion).
 # Without it Firefox cannot play H.264/AAC, which half the web's video uses.
+# libxss1: Firefox loads it to keep the screen on while a video plays, which
+# is what lets the session turn an idle screen off.
 PKGS_BROWSER="
-  firefox-esr libpci3
+  firefox-esr libpci3 libxss1
 "
 
+# libspa-0.2-bluetooth: without it Bluetooth headphones and speakers pair but
+# never play (PipeWire's Bluetooth audio lives in that package, a Recommends).
 PKGS_AUDIO="
-  pipewire pipewire-pulse pipewire-alsa wireplumber
+  pipewire pipewire-pulse pipewire-alsa wireplumber libspa-0.2-bluetooth
   pulseaudio-utils alsa-ucm-conf
 "
 
@@ -111,6 +115,7 @@ PKGS_FIRMWARE="
   firmware-iwlwifi firmware-realtek firmware-atheros firmware-brcm80211
   firmware-libertas firmware-ti-connectivity firmware-sof-signed
   firmware-amd-graphics bluez-firmware
+  firmware-intel-graphics firmware-intel-sound firmware-mediatek firmware-cirrus
   intel-microcode amd64-microcode
   i965-va-driver intel-media-va-driver mesa-va-drivers
 "

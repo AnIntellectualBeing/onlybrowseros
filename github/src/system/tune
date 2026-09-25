@@ -166,6 +166,16 @@ TIER_PREFS = {
         # more processes.
         "network.process.enabled": False,
         "extensions.webextensions.remote": False,
+        # Smoothness on a slow processor: no menu and tab animations, and
+        # sites that honour "reduced motion" skip theirs too.
+        "toolkit.cosmeticAnimations.enabled": False,
+        "ui.prefersReducedMotion": 1,
+        # No connections opened in advance to sites that may never be visited.
+        "network.http.speculative-parallel-limit": 0,
+        "browser.places.speculativeConnect.enabled": False,
+        "browser.urlbar.speculativeConnect.enabled": False,
+        # Fewer closed tabs kept in memory for "Reopen closed tab".
+        "browser.sessionstore.max_tabs_undo": 3,
     },
     # 3-6 GB.
     "medium": {

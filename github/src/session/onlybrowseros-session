@@ -17,10 +17,13 @@ done
 exec >>"$STATE/session.log" 2>&1
 echo "=== session start $(date -Is) ==="
 
-# Firefox cannot tell X it is playing video, so blanking would cut into films.
+# The screen switches off after 10 idle minutes, which is most of what an
+# idle laptop's battery goes on. Firefox holds it on while a video plays
+# (XScreenSaverSuspend, from libxss1); a key or the touchpad wakes it.
 xset s off
 xset s noblank
-xset -dpms
+xset +dpms
+xset dpms 0 0 600
 
 xsetroot -solid "#cfe5ff" -cursor_name left_ptr 2>/dev/null || true
 

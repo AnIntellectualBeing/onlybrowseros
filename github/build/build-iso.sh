@@ -403,6 +403,8 @@ EOF
     systemctl enable NetworkManager.service bluetooth.service systemd-timesyncd.service \
                      earlyoom.service ${OBOS_ID}-tune.service ${OBOS_ID}-autotest.service >/dev/null
     systemctl disable NetworkManager-wait-online.service >/dev/null 2>&1 || true
+    # SSDs stay fast when told once a week which blocks are free.
+    systemctl enable fstrim.timer >/dev/null 2>&1 || true
     # A Python process that waits all day to install updates at shutdown (~30 MB);
     # the apt-daily-upgrade timer installs them without it.
     systemctl disable unattended-upgrades.service >/dev/null 2>&1 || true

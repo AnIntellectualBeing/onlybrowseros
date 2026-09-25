@@ -10,6 +10,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import subprocess
 import threading
 import time
@@ -332,60 +333,114 @@ def bt_scan(seconds=12):
     return [d for d in _parse_devices(out) if d["mac"] not in paired and not _unnamed(d)]
 
 
-def bt_pair(mac):
+def bt_pair(mac, on_code=None):
     """Pair, trust and connect. Talks to one bluetoothctl session, because
-    pairing needs an agent registered in the same process."""
+    pairing needs an agent registered in the same process.
+
+    Headphones, speakers and mice pair without a code. A keyboard shows a code
+    to type on it, and a phone or computer shows one to confirm; on_code(text)
+    is then called (from this thread) with what to tell the user."""
     if not MAC.match(mac):
         return False, "Unknown device."
     try:
         proc = subprocess.Popen(["bluetoothctl"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, env=ENV, bufsize=1)
+                                stderr=subprocess.STDOUT, env=ENV)
     except FileNotFoundError:
         return False, "Bluetooth tools are not installed."
 
-    lines = queue.Queue()
+    # The agent's questions are prompts without a line ending, so read what
+    # arrives rather than whole lines.
+    chunks = queue.Queue()
 
     def reader():
-        for line in proc.stdout:
-            lines.put(ANSI.sub("", line))
-        lines.put(None)
+        fd = proc.stdout.fileno()
+        while True:
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            chunks.put(ANSI.sub("", data.decode("utf-8", "replace")))
+        chunks.put(None)
 
     threading.Thread(target=reader, daemon=True).start()
+    seen = [""]
 
     def send(command):
         try:
-            proc.stdin.write(command + "\n")
+            proc.stdin.write((command + "\n").encode())
             proc.stdin.flush()
         except (BrokenPipeError, OSError):
             pass
+
+    def tell(text):
+        if on_code:
+            try:
+                on_code(text)
+            except Exception:  # noqa: BLE001 - the UI's problem, not pairing's
+                pass
+
+    def answer_agent():
+        """Answer whatever the agent asked since the last call."""
+        text = seen[0]
+        m = re.search(r"Confirm passkey (\d+)", text)
+        if m:
+            seen[0] = text[m.end():]
+            send("yes")
+            tell(f"If the device shows {m.group(1)}, confirm it there.")
+            return
+        m = re.search(r"(?:Passkey|PIN code):\s*(\d+)", text)
+        if m:
+            seen[0] = text[m.end():]
+            tell(f"On the device, type {m.group(1)} and press Enter.")
+            return
+        m = re.search(r"Enter (?:PIN code|passkey)", text)
+        if m:
+            seen[0] = text[m.end():]
+            code = f"{secrets.randbelow(1000000):06d}"
+            send(code)
+            tell(f"On the device, type {code} and press Enter.")
+            return
+        m = re.search(r"Authorize service|Accept pairing \(yes/no\)", text)
+        if m:
+            seen[0] = text[m.end():]
+            send("yes")
 
     def wait_for(outcomes, timeout):
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
-                line = lines.get(timeout=0.5)
+                chunk = chunks.get(timeout=0.5)
             except queue.Empty:
                 continue
-            if line is None:
+            if chunk is None:
                 return None
+            seen[0] = (seen[0] + chunk)[-4000:]
+            answer_agent()
             for key, text in outcomes:
-                if text in line:
+                if text in seen[0]:
+                    seen[0] = seen[0][seen[0].index(text) + len(text):]
                     return key
         return "timeout"
 
     try:
-        send("agent NoInputNoOutput")
+        # KeyboardDisplay: the agent can show a code and accept one, which is
+        # what keyboards and phones ask for; headphones still need nothing.
+        send("agent KeyboardDisplay")
         send("default-agent")
         send("scan on")
         time.sleep(2)
         send(f"pair {mac}")
+        # Long enough to type a code on a keyboard.
         result = wait_for([("ok", "Pairing successful"), ("ok", "AlreadyExists"),
                            ("auth", "AuthenticationFailed"), ("auth", "AuthenticationRejected"),
-                           ("fail", "Failed to pair"), ("gone", "not available")], 45)
+                           ("auth", "AuthenticationCanceled"), ("auth", "AuthenticationTimeout"),
+                           ("fail", "Failed to pair"), ("gone", "not available")], 75)
         if result == "gone":
             return False, "The device went out of range. Put it in pairing mode and search again."
         if result == "auth":
-            return False, "The device asked for a code. OnlyBrowserOS can pair headphones, speakers and mice, but not devices that need a code yet."
+            return False, "The code was not accepted in time. Choose the device to try again."
         if result != "ok":
             return False, "Pairing did not work. Put the device in pairing mode and try again."
         send(f"trust {mac}")
@@ -395,7 +450,7 @@ def bt_pair(mac):
         result = wait_for([("ok", "Connection successful"), ("fail", "Failed to connect")], 30)
         if result == "ok":
             return True, "Connected."
-        return True, "Paired. If it does not play yet, choose Connect."
+        return True, "Paired. If it does not work yet, choose it and then Connect."
     finally:
         send("quit")
         try:
@@ -579,6 +634,70 @@ def battery():
     }
 
 
+# ------------------------------------------------------------------ screens
+
+INTERNAL_SCREEN = re.compile(r"^(eDP|LVDS|DSI)", re.I)
+
+
+def parse_xrandr(text):
+    """[{name, connected, active, preferred}] from `xrandr --query`."""
+    outputs = []
+    for line in text.splitlines():
+        m = re.match(r"^(\S+) (connected|disconnected)(?: primary)?(?: (\d+x\d+)\+\d+\+\d+)?", line)
+        if m:
+            outputs.append({"name": m.group(1), "connected": m.group(2) == "connected",
+                            "active": m.group(3) is not None, "preferred": None, "first": None})
+            continue
+        m = re.match(r"^\s+(\d+x\d+)\S*\s+(.*)$", line)
+        if m and outputs:
+            out = outputs[-1]
+            out["first"] = out["first"] or m.group(1)
+            if "+" in m.group(2) and not out["preferred"]:
+                out["preferred"] = m.group(1)
+    for out in outputs:
+        out["preferred"] = out["preferred"] or out["first"]
+    return outputs
+
+
+def mirror_command(outputs):
+    """The xrandr command that shows the same picture on every connected
+    screen: the laptop's own screen at its best size, and each other screen
+    scaled to match, so nothing (the taskbar least of all) is cut off. There is
+    one browser window, so a second desktop would only be somewhere to lose
+    the mouse."""
+    connected = [o for o in outputs if o["connected"] and o["preferred"]]
+    if not connected:
+        return None
+    main = next((o for o in connected if INTERNAL_SCREEN.match(o["name"])), connected[0])
+    args = ["xrandr", "--output", main["name"], "--mode", main["preferred"], "--pos", "0x0",
+            "--primary", "--scale", "1x1"]
+    for o in connected:
+        if o is not main:
+            args += ["--output", o["name"], "--auto", "--same-as", main["name"],
+                     "--scale-from", main["preferred"]]
+    for o in outputs:
+        if not o["connected"] and o["active"]:
+            args += ["--output", o["name"], "--off"]
+    return args
+
+
+def arrange_screens(only_if_needed=False):
+    code, out, _ = run(["xrandr", "--query"], timeout=10)
+    if code != 0:
+        return False, "xrandr failed"
+    outputs = parse_xrandr(out)
+    if only_if_needed:
+        connected = [o for o in outputs if o["connected"]]
+        stale = [o for o in outputs if o["active"] and not o["connected"]]
+        if len(connected) <= 1 and not stale:
+            return True, ""   # one screen, already showing: leave it as it started
+    args = mirror_command(outputs)
+    if not args:
+        return False, "no screen"
+    code, out, err = run(args, timeout=15)
+    return code == 0, last_line(err, out)
+
+
 # ---------------------------------------------------------- power, session
 
 def power(action):
@@ -617,6 +736,29 @@ def memory_usage():
     except (OSError, ValueError, IndexError):
         return 0, 0
     return values.get("MemTotal", 0), values.get("MemAvailable", 0)
+
+
+def free_space_mb(path=None):
+    """Free space where downloads and the browser's data are kept. On the USB
+    stick that is memory, so it runs out sooner."""
+    try:
+        st = os.statvfs(path or str(Path.home()))
+    except OSError:
+        return None
+    return st.f_bavail * st.f_frsize // (1024 * 1024)
+
+
+DOWNLOADS_URL = "file:///usr/share/onlybrowseros/start/downloads.html"
+
+
+def open_in_browser(url):
+    """A new tab in the running browser. With the browser closed (the home
+    screen shows), nothing: its button brings the browser back."""
+    code, _, _ = run(["pgrep", "-x", "firefox-esr"], timeout=5)
+    if code != 0:
+        return
+    subprocess.Popen(["firefox-esr", "--new-tab", url], stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def runtime_dir():

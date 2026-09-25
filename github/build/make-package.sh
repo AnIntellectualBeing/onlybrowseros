@@ -46,6 +46,7 @@ done
 put 0755 "$SRC/installer/install-helper" "$LIB/install-helper"
 put 0755 "$SRC/session/autostart" "$LIB/autostart"
 put 0755 "$SRC/session/browser" "$LIB/browser"
+put 0755 "$SRC/session/media-key" "$LIB/media-key"
 put 0755 "$SRC/session/onlybrowseros-session" "usr/bin/onlybrowseros-session"
 
 # ------------------------------------------------------------ the browser

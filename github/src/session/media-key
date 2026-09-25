@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# The laptop's volume and brightness keys (bound in openbox's rc.xml). Changes
+# the level, then leaves it in $XDG_RUNTIME_DIR/onlybrowseros/osd, where the
+# taskbar picks it up and shows it on screen for a moment.
+#
+#   media-key volume-up | volume-down | mute | mic-mute | brightness-up | brightness-down
+
+set -u
+
+OSD="${XDG_RUNTIME_DIR:-/tmp/onlybrowseros-$(id -u)}/onlybrowseros/osd"
+mkdir -p "$(dirname "$OSD")"
+
+volume_state() {
+  # "Volume: 0.45" or "Volume: 0.45 [MUTED]"
+  local out
+  out="$(wpctl get-volume "$1" 2>/dev/null)" || return 1
+  local level muted=0
+  level="$(awk '{printf "%d", $2 * 100 + 0.5}' <<<"$out")"
+  [[ "$out" == *MUTED* ]] && muted=1
+  printf '%s %s %s\n' "$2" "$level" "$muted" > "$OSD"
+}
+
+brightness_state() {
+  local out
+  out="$(brightnessctl -m -c backlight info 2>/dev/null)" || return 1
+  printf 'brightness %s 0\n' "$(cut -d, -f4 <<<"$out" | tr -d '%')" > "$OSD"
+}
+
+case "${1:-}" in
+  volume-up)
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ 0
+    wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
+    volume_state @DEFAULT_AUDIO_SINK@ volume ;;
+  volume-down)
+    wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+    volume_state @DEFAULT_AUDIO_SINK@ volume ;;
+  mute)
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+    volume_state @DEFAULT_AUDIO_SINK@ volume ;;
+  mic-mute)
+    wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+    volume_state @DEFAULT_AUDIO_SOURCE@ microphone ;;
+  brightness-up)
+    brightnessctl -q -c backlight set 10%+ && brightness_state ;;
+  brightness-down)
+    brightnessctl -q -c backlight -n 5% set 10%- && brightness_state ;;
+  *)
+    echo "usage: $0 volume-up|volume-down|mute|mic-mute|brightness-up|brightness-down" >&2
+    exit 2 ;;
+esac
+exit 0

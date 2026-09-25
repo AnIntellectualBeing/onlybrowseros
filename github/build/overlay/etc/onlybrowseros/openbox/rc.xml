@@ -74,24 +74,24 @@
       </action>
     </keybind>
 
-    <!-- Laptop media keys. -->
+    <!-- Laptop media keys; the taskbar shows the new level on screen. -->
     <keybind key="XF86AudioRaiseVolume">
-      <action name="Execute"><command>wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+</command></action>
+      <action name="Execute"><command>/usr/lib/onlybrowseros/media-key volume-up</command></action>
     </keybind>
     <keybind key="XF86AudioLowerVolume">
-      <action name="Execute"><command>wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-</command></action>
+      <action name="Execute"><command>/usr/lib/onlybrowseros/media-key volume-down</command></action>
     </keybind>
     <keybind key="XF86AudioMute">
-      <action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle</command></action>
+      <action name="Execute"><command>/usr/lib/onlybrowseros/media-key mute</command></action>
     </keybind>
     <keybind key="XF86AudioMicMute">
-      <action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle</command></action>
+      <action name="Execute"><command>/usr/lib/onlybrowseros/media-key mic-mute</command></action>
     </keybind>
     <keybind key="XF86MonBrightnessUp">
-      <action name="Execute"><command>brightnessctl -q -c backlight set 10%+</command></action>
+      <action name="Execute"><command>/usr/lib/onlybrowseros/media-key brightness-up</command></action>
     </keybind>
     <keybind key="XF86MonBrightnessDown">
-      <action name="Execute"><command>brightnessctl -q -c backlight -n 5% set 10%-</command></action>
+      <action name="Execute"><command>/usr/lib/onlybrowseros/media-key brightness-down</command></action>
     </keybind>
   </keyboard>
 

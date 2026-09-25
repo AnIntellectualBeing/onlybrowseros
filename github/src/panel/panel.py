@@ -27,7 +27,7 @@ import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, Gtk, Pango  # noqa: E402
+from gi.repository import Gdk, Gio, Gtk, Pango  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -75,6 +75,13 @@ window.popup levelbar block.filled { background-color: {accent}; }
 window.popup levelbar block.filled.high { background-color: {warn}; }
 window.popup levelbar block.filled.full { background-color: {bad}; }
 window.popup levelbar block.empty { background-color: transparent; }
+
+window.osd { background-color: {surface}; color: {text}; border: 1px solid {border}; }
+window.osd levelbar trough { background-color: {border}; border: none; border-radius: 4px; min-height: 8px; }
+window.osd levelbar block { border: none; border-radius: 4px; min-height: 8px; }
+window.osd levelbar block.filled { background-color: {accent}; }
+window.osd levelbar block.empty { background-color: transparent; }
+window.osd .osd-value { font-weight: 700; font-size: 13px; }
 
 window.alert { background-color: {surface}; color: {text}; border: 1px solid {border}; }
 window.alert .alert-title { font-size: 20px; font-weight: 800; }
@@ -589,7 +596,7 @@ class BluetoothMenu(Popup):
         self.paired_box.show_all()
         self.show_nearby()
         if not devices and not self.nearby and not self.busy and not self.message.get_text():
-            self.message.set_text("Put your headphones, speaker or mouse in pairing mode, then choose Find devices.")
+            self.message.set_text("Put your headphones, speaker, mouse or keyboard in pairing mode, then choose Find devices.")
 
     def show_nearby(self):
         clear(self.nearby_box)
@@ -691,7 +698,10 @@ class BluetoothMenu(Popup):
             self.load()
             self.panel.refresh("bluetooth")
 
-        in_background(lambda: system.bt_pair(dev["mac"]), done)
+        def on_code(text):
+            GLib.idle_add(lambda: self.message.set_text(text) and False)
+
+        in_background(lambda: system.bt_pair(dev["mac"], on_code), done)
 
     def on_switch(self, switch, _param):
         on = switch.get_active()
@@ -1269,6 +1279,101 @@ class BatteryAlert(Gtk.Window):
         in_background(lambda: system.power("poweroff"))
 
 
+class DiskAlert(Gtk.Window):
+    """Space for downloads is nearly gone. Shown once each time it runs low:
+    with a full disk the browser can no longer save pages, passwords or tabs."""
+
+    def __init__(self, panel):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.panel = panel
+        self.set_title("Space")
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.set_keep_above(True)
+        self.set_skip_taskbar_hint(True)
+        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        add_class(self, "alert")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_border_width(28)
+        box.set_size_request(420, -1)
+        self.title = label("This computer is almost full", "alert-title", xalign=0.5)
+        self.text = label("", "muted", xalign=0.5, wrap=True)
+        self.text.set_justify(Gtk.Justification.CENTER)
+        buttons = Gtk.Box(spacing=10)
+        buttons.set_halign(Gtk.Align.CENTER)
+        buttons.pack_start(button("Later", on_click=self.hide), False, False, 0)
+        buttons.pack_start(button("Open Downloads", classes="primary", on_click=self.open_downloads), False, False, 0)
+        icon = Icon("install", 48)
+        icon.set_halign(Gtk.Align.CENTER)
+        for w in (icon, self.title, self.text, buttons):
+            box.pack_start(w, False, False, 0)
+        self.add(box)
+        self.connect("delete-event", lambda *_: self.hide() or True)
+
+    def warn(self, free_mb):
+        where = "memory" if self.panel.live else "space"
+        self.text.set_text(f"Only {free_mb} MB of {where} is left. Delete downloads you no longer "
+                           "need, so the browser can keep saving your tabs and passwords.")
+        self.show_all()
+        self.present()
+
+    def open_downloads(self):
+        self.hide()
+        in_background(lambda: system.open_in_browser(system.DOWNLOADS_URL))
+
+
+class LevelOSD(Gtk.Window):
+    """The level of volume or brightness, shown above the taskbar for a moment
+    after a laptop key changed it (the keys run /usr/lib/onlybrowseros/media-key)."""
+
+    HIDE_AFTER_MS = 1500
+
+    def __init__(self, panel):
+        super().__init__(type=Gtk.WindowType.POPUP)
+        self.panel = panel
+        self.hide_timer = None
+        add_class(self, "osd")
+        box = Gtk.Box(spacing=12)
+        box.set_border_width(14)
+        self.icon = Icon("speaker", 20, level=2)
+        self.bar = Gtk.LevelBar()
+        self.bar.set_min_value(0)
+        self.bar.set_max_value(100)
+        self.bar.set_valign(Gtk.Align.CENTER)
+        self.bar.set_size_request(180, -1)
+        self.value = label("", "osd-value", xalign=1.0)
+        self.value.set_width_chars(4)
+        box.pack_start(self.icon, False, False, 0)
+        box.pack_start(self.bar, True, True, 0)
+        box.pack_start(self.value, False, False, 0)
+        self.add(box)
+
+    def show_level(self, kind, level, muted):
+        level = max(0, min(100, level))
+        if kind == "brightness":
+            self.icon.update("sun")
+        elif kind == "microphone":
+            self.icon.update("mic", muted=muted)
+        else:
+            self.icon.update("speaker", level=0 if level == 0 else (1 if level < 50 else 2), muted=muted)
+        self.bar.set_value(0 if muted else level)
+        self.value.set_text("Off" if muted else f"{level}%")
+        self.show_all()
+        geo = self.panel.monitor_geometry()
+        width, height = self.get_size()
+        self.move(geo.x + (geo.width - width) // 2, geo.y + geo.height - PANEL_HEIGHT - height - 24)
+        if self.hide_timer:
+            GLib.source_remove(self.hide_timer)
+        self.hide_timer = GLib.timeout_add(self.HIDE_AFTER_MS, self._hide)
+
+    def _hide(self):
+        self.hide_timer = None
+        self.hide()
+        return False
+
+
 class Panel(Gtk.Window):
     def __init__(self):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
@@ -1391,16 +1496,62 @@ class Panel(Gtk.Window):
         self.tick_clock()
         for what in ("network", "sound", "bluetooth", "battery", "brightness"):
             self.refresh(what)
-        GLib.timeout_add_seconds(20, self.poll)
+        GLib.timeout_add_seconds(30, self.poll)
         GLib.timeout_add_seconds(15, self.poll_battery)
+        self.disk_alert = None
+        self.disk_warned = False
+        GLib.timeout_add_seconds(60, lambda: self.check_space() and False)
+        GLib.timeout_add_seconds(600, self.check_space)
 
         system.watch(["nmcli", "monitor"], lambda _line: self.soon("network"))
+        self.watch_osd()
+        self.watch_screens()
 
         def on_audio_event(line):
             # Only device changes; our own pactl calls show up as client events.
             if " on sink" in line or " on source" in line or " on server" in line:
                 self.soon("sound")
         system.watch(["pactl", "subscribe"], on_audio_event)
+
+    def watch_osd(self):
+        path = system.runtime_dir() / "osd"
+        self.osd = None
+        self.osd_monitor = Gio.File.new_for_path(str(path)).monitor_file(Gio.FileMonitorFlags.NONE, None)
+
+        def changed(_monitor, _file, _other, event):
+            if event not in (Gio.FileMonitorEvent.CHANGES_DONE_HINT, Gio.FileMonitorEvent.CREATED):
+                return
+            try:
+                kind, level, muted = path.read_text().split()
+                level, muted = int(level), muted == "1"
+            except (OSError, ValueError):
+                return
+            if self.osd is None:
+                self.osd = LevelOSD(self)
+            self.osd.show_level(kind, level, muted)
+            self.refresh("brightness" if kind == "brightness" else "sound")
+
+        self.osd_monitor.connect("changed", changed)
+
+    def watch_screens(self):
+        """A TV or projector plugged in shows the same picture (udev touches
+        the file; see 90-onlybrowseros-display.rules)."""
+        in_background(lambda: system.arrange_screens(only_if_needed=True))
+        self.screen_timer = None
+        self.screen_monitor = Gio.File.new_for_path("/run/onlybrowseros/display-changed").monitor_file(
+            Gio.FileMonitorFlags.NONE, None)
+
+        def arrange():
+            self.screen_timer = None
+            in_background(system.arrange_screens)
+            return False
+
+        def changed(*_):
+            # A plug sends several events; act once the screen has settled.
+            if self.screen_timer is None:
+                self.screen_timer = GLib.timeout_add(1500, arrange)
+
+        self.screen_monitor.connect("changed", changed)
 
     def soon(self, what):
         """Called from watcher threads: refresh once things settle."""
@@ -1417,8 +1568,14 @@ class Panel(Gtk.Window):
         GLib.idle_add(schedule)
 
     def poll(self):
-        for what in ("network", "sound", "bluetooth"):
-            self.refresh(what)
+        # Network and sound changes arrive from their watchers straight away;
+        # asking again only every few minutes catches a watcher that died.
+        # Bluetooth has no watcher.
+        self.poll_ticks = getattr(self, "poll_ticks", 0) + 1
+        self.refresh("bluetooth")
+        if self.poll_ticks % 6 == 0:
+            self.refresh("network")
+            self.refresh("sound")
         return True
 
     def poll_battery(self):
@@ -1428,6 +1585,23 @@ class Panel(Gtk.Window):
         running_low = last is not None and not last["plugged"] and last["percent"] <= LOW_BATTERY + 5
         if running_low or self.battery_ticks % 4 == 0:
             self.refresh("battery")
+        return True
+
+    LOW_SPACE_MB = 400      # warn below this much free space
+    SPACE_OK_MB = 1024      # and again only after it has been above this
+
+    def check_space(self):
+        def done(free, error):
+            if free is None:
+                return
+            if free >= self.SPACE_OK_MB:
+                self.disk_warned = False
+            elif free < self.LOW_SPACE_MB and not self.disk_warned:
+                self.disk_warned = True
+                if self.disk_alert is None:
+                    self.disk_alert = DiskAlert(self)
+                self.disk_alert.warn(free)
+        in_background(system.free_space_mb, done)
         return True
 
     def check_battery(self, b):
