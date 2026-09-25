@@ -141,7 +141,7 @@ installs new versions silently, the same way as security fixes.
 One-time setup:
 
 1. Create the signing key, as yourself (not sudo), and back it up as the script
-   explains. Losing it means no more updates for computers already sold;
+   explains. Losing it means no more updates for computers already installed;
    leaking it lets someone else push to all of them.
    ```sh
    cd build && ./make-signing-key.sh you@example.com

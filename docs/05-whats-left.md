@@ -1,8 +1,7 @@
 # What's Left
 
 My to-do list: what has to happen before updates work, what still needs
-testing on real hardware, open decisions, and known gaps that aren't
-blocking.
+testing on real hardware, and known gaps that aren't blocking.
 
 ## Before my own updates work
 
@@ -17,7 +16,7 @@ with a throwaway key, but not activated on the real release**. To turn it on:
    ```
    It asks for a passphrase and then says to back up the private key to two
    separate offline USB sticks. **This matters: if the key is lost, no
-   computer already sold or installed can ever receive another update.**
+   computer already installed can ever receive another update.**
    Never commit the private key to git or share it.
 
 2. **Create the public GitHub repo for updates** (already named
@@ -69,21 +68,6 @@ behavior. Before shipping to actual people:
   find one — since that's the hardest case the "Low-end PC" tier is meant to
   handle.
 
-## Decisions still open
-
-- **Trademark check was a web search only, not a legal one.** Before
-  selling or publicly shipping under the name "OnlyBrowserOS," search the
-  official trademark databases (USPTO, EUIPO TMview, WIPO Global Brand
-  Database) or talk to a trademark lawyer. The closest existing name found
-  was "BrowserOS" (an unrelated AI browser project) — worth a specific look.
-- **Legal pages** (privacy policy, terms, license) — deferred
-  for now. Needed before any public release with real
-  users.
-- **Language** — English only for now. No i18n/translation
-  infrastructure exists yet; if that changes later, every user-facing string
-  in the Python files, the extension, and the HTML pages would need to be
-  extracted into a translation system.
-
 ## Known gaps (not blocking, but worth knowing about)
 
 - One line in the automated test report incorrectly said "Secure Boot off"
@@ -113,6 +97,7 @@ behavior. Before shipping to actual people:
 - Older Broadcom Wi-Fi chips (BCM4312/4313/43142 and similar) need Debian's
   `broadcom-sta-dkms`, which compiles a kernel module on the machine and would
   bring a compiler into the image; not supported yet.
+- English only: there are no translations yet.
 - No CJK (Chinese/Japanese/Korean) fonts are included, to keep the image
   size down — those languages will show as missing-glyph boxes.
 - Firefox's own emergency escape hatches (some keyboard shortcuts,
