@@ -18,7 +18,7 @@ runs, in the same order. Where the script uses a variable from
 | 9 | `iso` |
 
 For a gentler start that builds a smaller system of your own, see the course
-in [`10-make-your-own-os.md`](10-make-your-own-os.md). Follow it once and you can make any
+in [createyourdistro](https://github.com/AnIntellectualBeing/createyourdistro). Follow it once and you can make any
 "Linux that boots into one program" system, with or without my scripts.
 
 Commands starting with `$` run as your normal user, `#` as root (`sudo -i`).

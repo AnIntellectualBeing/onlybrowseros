@@ -10,6 +10,3 @@ __pycache__/
 # github/build/keys/ holds only the PUBLIC signing key and its fingerprint;
 # the private key stays in your gpg keyring and in your offline backups.
 *.asc
-# MyOS example (docs/10-make-your-own-os.md)
-docs/myos/work/
-docs/myos/out/

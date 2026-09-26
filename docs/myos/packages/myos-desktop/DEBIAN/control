@@ -1,9 +1,0 @@
-Package: myos-desktop
-Version: 0.1
-Architecture: all
-Maintainer: Your Name <you@example.org>
-Depends: xserver-xorg-core, xinit, x11-xserver-utils, openbox, firefox-esr,
- python3, python3-gi, gir1.2-gtk-3.0, polkitd
-Description: MyOS desktop: session, bar and window rules
- Starts the browser full screen above a small bar that shows the time
- and has a power button.

@@ -394,7 +394,7 @@ git push --force origin onlybrowseros-v1.1
 ## 8. If you want to make your own
 
 For a complete hands-on course with a working example, see
-[`10-make-your-own-os.md`](10-make-your-own-os.md). In short, a route that
+[createyourdistro](https://github.com/AnIntellectualBeing/createyourdistro). In short, a route that
 follows how this project grew:
 
 1. **Learn the pieces by hand.** Follow [`06-build-from-scratch.md`](06-build-from-scratch.md)
